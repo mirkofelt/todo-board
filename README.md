@@ -11,7 +11,7 @@ worker subprocesses (Claude CLI) and their status tracked in real time.
 - Stalled workers detected after 25 min and re-queued automatically
 - Editable global requirements shown to every worker
 - Status line for live worker progress
-- Auto-reloads the UI when `app.py` changes on disk
+- Auto-reloads the UI when server or template files change on disk
 
 ## Requirements
 
@@ -19,18 +19,35 @@ worker subprocesses (Claude CLI) and their status tracked in real time.
 - `claude` CLI in PATH (or set `CLAUDE_BIN`)
 
 ```bash
-pip install fastapi uvicorn
-# or
 pip install -e .
+# or without installing:
+pip install fastapi uvicorn
 ```
 
 ## Running
 
 ```bash
-python app.py
+# Recommended (module entry point)
+python -m todo_board
+
+# Or via uvicorn directly
+python -m uvicorn todo_board.server:app --host 0.0.0.0 --port 7842
+
+# Or via the installed script
+todo-board
 ```
 
 Open [http://localhost:7842](http://localhost:7842).
+
+## Heartbeat / stall detection
+
+Run periodically (e.g. via cron) to detect and re-queue workers that hit the context limit:
+
+```bash
+python -m todo_board.heartbeat
+# or via the installed script:
+todo-board-heartbeat
+```
 
 ## Environment variables
 
@@ -38,9 +55,26 @@ Open [http://localhost:7842](http://localhost:7842).
 |---|---|---|
 | `TODO_BOARD_PORT` | `7842` | Port for the web server |
 | `TODO_BOARD_URL` | `http://localhost:7842` | Base URL used by workers to call back |
+| `TODO_BOARD_DATA_DIR` | parent of package dir | Directory for `todos.json`, `projects.json`, etc. |
 | `CLAUDE_BIN` | `claude` (auto-detected) | Path to the Claude CLI binary |
 | `MEMORY_FILE` | _(none)_ | Optional path to a markdown file injected as context into each worker prompt |
 | `CLAUDE_WORK_DIR` | `$HOME` | Working directory for Claude worker subprocesses |
+
+## Project layout
+
+```
+todo_board/
+    __init__.py
+    __main__.py     # entry point: python -m todo_board
+    config.py       # paths and constants
+    storage.py      # JSON load/save for todos, projects, rules, statusline
+    spawner.py      # shared worker spawning logic
+    server.py       # FastAPI app and all API routes
+    worker.py       # subprocess worker (spawned per todo)
+    heartbeat.py    # stall detection and re-queue
+    templates/
+        index.html  # single-page UI (dark theme, self-contained)
+```
 
 ## API
 
@@ -57,18 +91,15 @@ Open [http://localhost:7842](http://localhost:7842).
 | `GET` | `/api/projects` | List projects |
 | `POST` | `/api/projects/add` | Add project `{name}` |
 | `POST` | `/api/projects/delete/:id` | Delete project |
-| `GET` | `/api/version` | Returns `app.py` mtime — used for auto-reload |
+| `GET` | `/api/version` | Returns max mtime of server + template — used for auto-reload |
 
 ## Worker lifecycle
 
-When a new todo is added, `todo_worker.py` is spawned as a subprocess. It:
+When a new todo is added, `todo_board/worker.py` is spawned as a subprocess. It:
 1. Sets status → `in_progress`
 2. Calls `claude -p <prompt>` with the task text and optional memory context
 3. Sets status → `done` or `failed` based on output
 4. Clears the status line
-
-The heartbeat script (`check_todos.py`) can be run on a cron to detect and re-queue
-stalled workers.
 
 ## License
 

@@ -7,3 +7,11 @@ dependencies = [
     "fastapi>=0.111",
     "uvicorn>=0.29",
 ]
+
+[project.scripts]
+todo-board = "todo_board.__main__:main"
+todo-board-heartbeat = "todo_board.heartbeat:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"

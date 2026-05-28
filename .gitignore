@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+dist/
+.venv/
 
 # Runtime data — generated at startup, not tracked
 todos.json
@@ -10,4 +13,5 @@ rules.txt
 
 # Logs
 server.log
+todo_board/worker_*.log
 worker_*.log

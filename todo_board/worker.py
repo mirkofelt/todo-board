@@ -3,7 +3,7 @@
 Python manages the todo lifecycle (in_progress/done/failed). Claude receives only
 the task and context, and outputs FAILED:<reason> if it cannot complete the work.
 
-Usage: python3 todo_worker.py <todo_id>
+Usage: python3 todo_board/worker.py <todo_id>
 """
 import json
 import os
@@ -13,8 +13,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
-BASE = Path(__file__).parent
-TODOS_FILE = BASE / "todos.json"
+_DATA_DIR = Path(__file__).resolve().parent.parent
+TODOS_FILE = _DATA_DIR / "todos.json"
+PROJECTS_FILE = _DATA_DIR / "projects.json"
+LOG_DIR = _DATA_DIR
+
 BOARD_URL = os.environ.get("TODO_BOARD_URL", "http://localhost:7842")
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
 _memory_path = os.environ.get("MEMORY_FILE", "")
@@ -38,7 +41,7 @@ def _api(path: str, data: dict) -> None:
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: todo_worker.py <todo_id>", file=sys.stderr)
+        print("Usage: worker.py <todo_id>", file=sys.stderr)
         sys.exit(1)
 
     todo_id = int(sys.argv[1])
@@ -53,10 +56,9 @@ def main() -> None:
         print(f"Todo #{todo_id} status={todo['status']}, skipping", file=sys.stderr)
         sys.exit(0)
 
-    projects_file = BASE / "projects.json"
     project_name = "General"
-    if projects_file.exists():
-        projects = json.loads(projects_file.read_text())
+    if PROJECTS_FILE.exists():
+        projects = json.loads(PROJECTS_FILE.read_text())
         proj = next((p for p in projects if p["id"] == todo.get("project_id")), None)
         if proj:
             project_name = proj["name"]
@@ -65,10 +67,8 @@ def main() -> None:
     task_text = todo["text"]
     task_preview = task_text[:60].replace('"', "'")
 
-    # Python takes ownership of lifecycle
     _api(f"/api/status/{todo_id}", {"status": "in_progress"})
-    _api(f"/api/progress/{todo_id}", {"text": "Starting…"})
-    _api("/api/statusline", {"text": f'Todo #{todo_id}: {task_preview}'})
+    _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
     prompt = f"""You are processing a single todo item. Implement it fully.
 
@@ -98,7 +98,7 @@ When you finish successfully, output nothing extra (or a brief summary).
 If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 """
 
-    log_file = BASE / f"worker_{todo_id}.log"
+    log_file = LOG_DIR / f"worker_{todo_id}.log"
     proc = subprocess.Popen(
         [CLAUDE_BIN, "-p", prompt, "--dangerously-skip-permissions"],
         cwd=WORK_DIR,
