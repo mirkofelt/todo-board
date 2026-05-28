@@ -19,6 +19,7 @@ worker subprocesses (Claude CLI) and their status tracked in real time.
 - Editable global requirements shown to every worker
 - Live progress line updated from worker `STATUS:` output
 - Token usage and duration tracked per todo (incl. cache hit %) accumulated into lifetime stats
+- **Task breakdown** — paste a high-level goal, click "Break down ↓" to get Claude to decompose it into subtasks; review and approve before queuing
 - Auto-reloads the UI when server or template files change on disk
 
 ## Requirements
@@ -96,6 +97,7 @@ tests/
     conftest.py
     test_clear.py
     test_edit.py
+    test_breakdown.py
     test_resume.py
     test_retry.py
     test_stats.py
@@ -107,6 +109,7 @@ tests/
 |---|---|---|
 | `GET` | `/api/todos` | List all todos |
 | `POST` | `/api/add` | Add a todo `{text, project_id?, model?}` |
+| `POST` | `/api/breakdown` | Decompose a task `{text, project_id?}` → `{tasks: [...]}` |
 | `POST` | `/api/status/:id` | Set status `{status, duration_secs?, tokens?}` |
 | `POST` | `/api/progress/:id` | Set live progress text `{text}` (max 150 chars) |
 | `POST` | `/api/done/:id` | Mark done |

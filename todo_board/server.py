@@ -1,3 +1,4 @@
+import asyncio
 import os
 import signal
 import subprocess
@@ -69,6 +70,20 @@ async def add_todo(request: Request):
     if will_spawn:
         spawn_worker(new_id)
     return {"ok": True, "id": new_id}
+
+
+@app.post("/api/breakdown")
+async def breakdown_todo(request: Request):
+    from .breakdown import breakdown_task
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    project_id = body.get("project_id")
+    if not text:
+        return JSONResponse({"ok": False, "error": "Text required"}, status_code=400)
+    tasks = await asyncio.to_thread(breakdown_task, text, project_id)
+    if not tasks:
+        return JSONResponse({"ok": False, "error": "Could not break down task"}, status_code=500)
+    return JSONResponse({"ok": True, "tasks": tasks})
 
 
 @app.post("/api/status/{todo_id}")

@@ -190,6 +190,26 @@ details[open] summary { margin-bottom: 14px; }
 .req-textarea:focus { outline: none; border-color: #10b981; }
 .save-row { display: flex; align-items: center; gap: 10px; }
 .save-status { font-size: 11px; color: #10b981; }
+
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.75); z-index: 200;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+  padding: 24px; width: 100%; max-width: 560px; max-height: 82vh;
+  overflow-y: auto; margin: 16px;
+}
+.modal-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
+.modal-subtitle { font-size: 11px; color: #475569; margin-bottom: 16px; }
+.breakdown-item {
+  display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start;
+}
+.breakdown-item textarea { flex: 1; min-height: 52px; resize: vertical; font-size: 13px; }
+.breakdown-item .btn-icon { margin-top: 6px; flex-shrink: 0; }
+.modal-actions { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; }
 </style>
 </head>
 <body>
@@ -208,6 +228,7 @@ details[open] summary { margin-bottom: 14px; }
       <div id="new-project-wrap">
         <input type="text" id="new-project-name" placeholder="Project name…">
       </div>
+      <button id="breakdown-btn" class="btn-ghost">Break down ↓</button>
       <button id="add-btn">Add</button>
     </div>
   </div>
@@ -247,6 +268,18 @@ details[open] summary { margin-bottom: 14px; }
       <span class="save-status" id="req-status"></span>
     </div>
   </details>
+</div>
+
+<div class="modal-overlay" id="breakdown-modal">
+  <div class="modal">
+    <div class="modal-title">Break down into subtasks</div>
+    <div class="modal-subtitle">Edit or remove tasks, then approve to queue them all.</div>
+    <div id="breakdown-tasks-list"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost btn-sm" id="breakdown-cancel-btn">Cancel</button>
+      <button id="approve-btn">Approve All</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -603,6 +636,118 @@ document.addEventListener("keydown", e => {
 document.getElementById("add-btn").addEventListener("click", addTodo);
 document.getElementById("new-todo").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTodo(); }
+});
+
+// ── Breakdown ────────────────────────────────────────────────────────────────
+
+let _breakdownProjectId = null;
+
+async function _resolveProjectId() {
+  const sel = document.getElementById("project-select");
+  if (!sel.value || sel.value === "") {
+    sel.classList.add("error");
+    sel.focus();
+    setTimeout(() => sel.classList.remove("error"), 1500);
+    return null;
+  }
+  if (sel.value === "__new__") {
+    const name = document.getElementById("new-project-name").value.trim();
+    if (!name) { document.getElementById("new-project-name").focus(); return null; }
+    const data = await fetch("/api/projects/add", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({name}),
+    }).then(r => r.json());
+    document.getElementById("new-project-name").value = "";
+    document.getElementById("new-project-wrap").style.display = "none";
+    projects = await fetch("/api/projects").then(r => r.json());
+    renderDropdown();
+    sel.value = String(data.id);
+    return data.id;
+  }
+  return parseInt(sel.value);
+}
+
+async function breakdownTodo() {
+  const ta = document.getElementById("new-todo");
+  const text = ta.value.trim();
+  if (!text) { ta.focus(); return; }
+  const projectId = await _resolveProjectId();
+  if (projectId === null) return;
+  _breakdownProjectId = projectId;
+
+  const btn = document.getElementById("breakdown-btn");
+  btn.disabled = true;
+  btn.textContent = "Breaking down…";
+
+  try {
+    const r = await fetch("/api/breakdown", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({text, project_id: projectId}),
+    });
+    const data = await r.json();
+    if (!data.ok || !data.tasks || !data.tasks.length) {
+      alert("Could not break down task: " + (data.error || "unknown error"));
+      return;
+    }
+    ta.value = "";
+    showBreakdownModal(data.tasks);
+  } catch (e) {
+    alert("Error: " + e.message);
+  } finally {
+    btn.textContent = "Break down ↓";
+    btn.disabled = false;
+  }
+}
+
+function showBreakdownModal(tasks) {
+  const list = document.getElementById("breakdown-tasks-list");
+  list.innerHTML = tasks.map((t, i) => `
+    <div class="breakdown-item" id="bdi-${i}">
+      <textarea class="breakdown-task-text">${esc(t)}</textarea>
+      <button class="btn-icon" onclick="document.getElementById('bdi-${i}').remove()" title="Remove">✕</button>
+    </div>
+  `).join("");
+  document.getElementById("breakdown-modal").classList.add("active");
+}
+
+function closeBreakdownModal() {
+  document.getElementById("breakdown-modal").classList.remove("active");
+  _breakdownProjectId = null;
+}
+
+async function approveBreakdown() {
+  const items = document.querySelectorAll(".breakdown-task-text");
+  const texts = Array.from(items).map(ta => ta.value.trim()).filter(Boolean);
+  if (!texts.length) { closeBreakdownModal(); return; }
+
+  const btn = document.getElementById("approve-btn");
+  btn.disabled = true;
+  btn.textContent = `Adding 0 / ${texts.length}…`;
+
+  for (let i = 0; i < texts.length; i++) {
+    await fetch("/api/add", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({text: texts[i], project_id: _breakdownProjectId}),
+    });
+    btn.textContent = `Adding ${i + 1} / ${texts.length}…`;
+  }
+
+  closeBreakdownModal();
+  btn.textContent = "Approve All";
+  btn.disabled = false;
+  await loadAll();
+}
+
+document.getElementById("breakdown-btn").addEventListener("click", breakdownTodo);
+document.getElementById("breakdown-cancel-btn").addEventListener("click", closeBreakdownModal);
+document.getElementById("approve-btn").addEventListener("click", approveBreakdown);
+document.getElementById("breakdown-modal").addEventListener("click", function(e) {
+  if (e.target === this) closeBreakdownModal();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.getElementById("breakdown-modal").classList.contains("active")) {
+    closeBreakdownModal();
+  }
 });
 
 document.getElementById("save-req-btn").addEventListener("click", async () => {
