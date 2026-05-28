@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
+from .config import PROJECTS_DIR
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     load_projects,
@@ -163,11 +164,10 @@ async def add_project(request: Request):
     name = (body.get("name") or "").strip()
     if not name:
         return JSONResponse({"ok": False}, status_code=400)
+    (PROJECTS_DIR / name).mkdir(exist_ok=True)
     projects = load_projects()
-    new_id = max((p["id"] for p in projects), default=0) + 1
-    projects.append({"id": new_id, "name": name})
-    save_projects(projects)
-    return {"ok": True, "id": new_id}
+    proj = next((p for p in projects if p["name"] == name), None)
+    return {"ok": True, "id": proj["id"] if proj else None}
 
 
 @app.post("/api/projects/delete/{project_id}")
