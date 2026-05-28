@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Todo Queue</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230f172a'/><circle cx='8' cy='10' r='4' fill='%2310b981'/><polyline points='6,10.5 7.5,12 10,8.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><rect x='14' y='8' width='13' height='4' rx='2' fill='%23334155'/><circle cx='8' cy='18' r='4' fill='none' stroke='%23f59e0b' stroke-width='2'/><rect x='14' y='16' width='10' height='4' rx='2' fill='%23334155'/><circle cx='8' cy='26' r='4' fill='none' stroke='%23475569' stroke-width='2'/><rect x='14' y='24' width='12' height='4' rx='2' fill='%231e293b'/></svg>">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -193,7 +194,7 @@ details[open] summary { margin-bottom: 14px; }
 </head>
 <body>
 <div class="container">
-  <h1>Todo Queue<span class="h1-stats" id="h1-stats"></span></h1>
+  <h1><span style="display:flex;align-items:center;gap:8px"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#0f172a"/><circle cx="8" cy="10" r="4" fill="#10b981"/><polyline points="6,10.5 7.5,12 10,8.5" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="8" width="13" height="4" rx="2" fill="#334155"/><circle cx="8" cy="18" r="4" fill="none" stroke="#f59e0b" stroke-width="2"/><rect x="14" y="16" width="10" height="4" rx="2" fill="#334155"/><circle cx="8" cy="26" r="4" fill="none" stroke="#475569" stroke-width="2"/><rect x="14" y="24" width="12" height="4" rx="2" fill="#1e293b"/></svg>Todo Queue</span><span class="h1-stats" id="h1-stats"></span></h1>
   <div id="last-activity" style="display:none"></div>
 
   <div class="add-form">
