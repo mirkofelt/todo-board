@@ -147,6 +147,7 @@ button:hover { background: #059669; }
   50% { opacity: .4; transform: scale(.7); }
 }
 
+.chain-badge { font-size: 10px; color: #64748b; font-family: monospace; background: #0f172a; border: 1px solid #2d3f57; border-radius: 10px; padding: 2px 7px; letter-spacing: .03em; }
 .meta-time { font-size: 11px; color: #334155; margin-left: auto; }
 .meta-stats { font-size: 10px; color: #334155; font-family: monospace; }
 .todo-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: flex-start; padding-top: 1px; }
@@ -325,6 +326,28 @@ function renderDropdown() {
   if (cur) sel.value = cur;
 }
 
+function buildChainMap(todos) {
+  const byId = Object.fromEntries(todos.map(t => [t.id, t]));
+  const nextOf = {};
+  for (const t of todos) {
+    if (t.prev_task_id != null) nextOf[t.prev_task_id] = t.id;
+  }
+  const result = {};
+  for (const t of todos) {
+    if (result[t.id] !== undefined) continue;
+    if (t.prev_task_id == null && nextOf[t.id] == null) continue;
+    // find chain head
+    let head = t;
+    while (head.prev_task_id != null && byId[head.prev_task_id]) head = byId[head.prev_task_id];
+    // walk forward to collect chain
+    const chain = [];
+    let cur = head;
+    while (cur) { chain.push(cur.id); cur = byId[nextOf[cur.id]]; }
+    chain.forEach((id, i) => { result[id] = {pos: i + 1, total: chain.length}; });
+  }
+  return result;
+}
+
 function renderTodos() {
   // Drop edit state for todos that are no longer locked
   editingTodos.forEach((_, id) => {
@@ -332,29 +355,30 @@ function renderTodos() {
     if (!todo || !todo.locked) editingTodos.delete(id);
   });
   const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+  const chainMap = buildChainMap(todos);
   const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled");
   const inProgress = todos.filter(t => t.status === "in_progress");
   const done = todos.filter(t => t.done || t.status === "canceled");
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
   document.getElementById("pending-list").innerHTML =
-    pending.map(t => todoHtml(t, projMap)).join("") || "";
+    pending.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
   document.getElementById("inprogress-section").style.display = inProgress.length ? "" : "none";
   document.getElementById("inprogress-list").innerHTML =
-    inProgress.map(t => todoHtml(t, projMap)).join("") || "";
+    inProgress.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
   const recentDone = done.slice(0, 3);
   const olderDone = done.slice(3);
 
   document.getElementById("done-section").style.display = done.length ? "" : "none";
   document.getElementById("done-list").innerHTML =
-    recentDone.map(t => todoHtml(t, projMap)).join("") || "";
+    recentDone.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
   const doneOverflow = document.getElementById("done-overflow");
   if (olderDone.length > 0) {
     document.getElementById("done-overflow-list").innerHTML =
-      olderDone.map(t => todoHtml(t, projMap)).join("");
+      olderDone.map(t => todoHtml(t, projMap, chainMap)).join("");
     document.getElementById("done-overflow-summary").textContent =
       `${olderDone.length} more…`;
     doneOverflow.style.display = "";
@@ -419,7 +443,7 @@ function progressCircleHtml(t) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#334155" stroke-width="2"/></svg>`;
 }
 
-function todoHtml(t, projMap) {
+function todoHtml(t, projMap, chainMap) {
   const inProgress = t.status === "in_progress";
   const isBlocked = t.status === "blocked";
   const isFailed = t.status === "failed";
@@ -432,6 +456,11 @@ function todoHtml(t, projMap) {
 
   const badge = t.project_id && projMap[t.project_id]
     ? `<span class="badge">${esc(projMap[t.project_id])}</span>` : "";
+
+  const chain = chainMap && chainMap[t.id];
+  const chainBadge = chain
+    ? `<span class="chain-badge" title="Step ${chain.pos} of ${chain.total} in breakdown sequence">⛓ ${chain.pos}/${chain.total}</span>`
+    : "";
 
   const ts = new Date(t.created * 1000).toLocaleString("de-DE", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 
@@ -454,7 +483,7 @@ function todoHtml(t, projMap) {
         </div>
         <div class="todo-actions"></div>
       </div>
-      <div class="todo-meta">${idBadge}${badge}<span class="status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#0d2318;border:1px solid #10b981;color:#10b981;text-transform:uppercase;letter-spacing:.06em">✎ Editing</span><span class="meta-time">${ts}</span></div>
+      <div class="todo-meta">${idBadge}${badge}${chainBadge}<span class="status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#0d2318;border:1px solid #10b981;color:#10b981;text-transform:uppercase;letter-spacing:.06em">✎ Editing</span><span class="meta-time">${ts}</span></div>
     </div>`;
   }
 
@@ -521,7 +550,7 @@ function todoHtml(t, projMap) {
       </div>
       <div class="todo-actions">${resumeBtn}${cancelBtn}${editBtn}${deleteBtn}</div>
     </div>
-    <div class="todo-meta">${idBadge}${badge}${statusBadge}${statsHtml}<span class="meta-time">${ts}</span></div>
+    <div class="todo-meta">${idBadge}${badge}${chainBadge}${statusBadge}${statsHtml}<span class="meta-time">${ts}</span></div>
   </div>`;
 }
 
