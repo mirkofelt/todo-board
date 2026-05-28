@@ -684,6 +684,7 @@ setInterval(() => {
     const started = parseInt(el.dataset.startedAt);
     if (!isNaN(started)) el.textContent = `Runtime: ${fmtElapsed(now - started)}`;
   });
+  updateLastActivity();
 }, 1000);
 </script>
 </body>
