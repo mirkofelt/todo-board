@@ -125,26 +125,38 @@ async def set_status(todo_id: int, request: Request):
                 stalled["note"] = f"Exceeded max retries ({MAX_RETRIES})"
                 save_todos(todos)
             else:
-                stalled["status"] = "in_progress"
-                stalled["status_updated_at"] = int(time.time())
-                stalled["progress"] = f"Retry {retry_count}/{MAX_RETRIES} after context limit…"
+                pid = stalled.get("project_id")
+                other_active = any(
+                    t["id"] != todo_id and t.get("project_id") == pid and t.get("status") == "in_progress"
+                    for t in todos
+                )
+                if other_active:
+                    stalled["status"] = "pending"
+                    stalled["status_updated_at"] = int(time.time())
+                    stalled["progress"] = None
+                else:
+                    stalled["status"] = "in_progress"
+                    stalled["status_updated_at"] = int(time.time())
+                    stalled["progress"] = f"Retry {retry_count}/{MAX_RETRIES} after context limit…"
                 save_todos(todos)
-                spawn_worker(todo_id)
+                if not other_active:
+                    spawn_worker(todo_id)
     # When a worker finishes, start the next pending todo in the same project
     elif status in ("done", "failed", "canceled"):
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
             pid = finished["project_id"]
-            next_todo = next(
-                (t for t in reversed(todos)
-                 if t.get("project_id") == pid and t.get("status") == "pending" and not t.get("locked")),
-                None,
-            )
-            if next_todo:
-                next_todo["status"] = "in_progress"
-                next_todo["status_updated_at"] = int(time.time())
-                save_todos(todos)
-                spawn_worker(next_todo["id"])
+            if not project_has_active_worker(pid, todos):
+                next_todo = next(
+                    (t for t in reversed(todos)
+                     if t.get("project_id") == pid and t.get("status") == "pending" and not t.get("locked")),
+                    None,
+                )
+                if next_todo:
+                    next_todo["status"] = "in_progress"
+                    next_todo["status_updated_at"] = int(time.time())
+                    save_todos(todos)
+                    spawn_worker(next_todo["id"])
     return {"ok": True}
 
 
@@ -245,16 +257,17 @@ def cancel_todo(todo_id: int):
     canceled = next((t for t in todos if t["id"] == todo_id), None)
     if canceled and canceled.get("project_id"):
         project_id = canceled["project_id"]
-        next_todo = next(
-            (t for t in reversed(todos)
-             if t.get("project_id") == project_id and t.get("status") == "pending" and not t.get("locked")),
-            None,
-        )
-        if next_todo:
-            next_todo["status"] = "in_progress"
-            next_todo["status_updated_at"] = int(time.time())
-            save_todos(todos)
-            spawn_worker(next_todo["id"])
+        if not project_has_active_worker(project_id, todos):
+            next_todo = next(
+                (t for t in reversed(todos)
+                 if t.get("project_id") == project_id and t.get("status") == "pending" and not t.get("locked")),
+                None,
+            )
+            if next_todo:
+                next_todo["status"] = "in_progress"
+                next_todo["status_updated_at"] = int(time.time())
+                save_todos(todos)
+                spawn_worker(next_todo["id"])
 
     return {"ok": True}
 
