@@ -9,7 +9,7 @@ Usage: python -m todo_board.heartbeat
 """
 import time
 
-from .config import CONTEXT_LIMIT_THRESHOLD
+from .config import CONTEXT_LIMIT_THRESHOLD, MAX_RETRIES
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import load_todos, save_todos
 
@@ -40,16 +40,25 @@ def main() -> None:
         return
 
     context_limit_ids = {t["id"] for t in non_done if t.get("status") == "context_limit"}
+    retry_ids: set = set()
     if context_limit_ids:
-        print(f"{len(context_limit_ids)} todo(s) hit context limit — retrying:")
-        for t in non_done:
-            if t["id"] in context_limit_ids:
-                print(f"  [{t['id']}] {t['text'][:80]}")
-                for td in todos:
-                    if td["id"] == t["id"]:
-                        td["status"] = "pending"
-                        td["status_updated_at"] = int(time.time())
+        print(f"{len(context_limit_ids)} todo(s) hit context limit:")
+        for td in todos:
+            if td["id"] in context_limit_ids:
+                retry_count = td.get("retry_count", 0) + 1
+                td["retry_count"] = retry_count
+                if retry_count > MAX_RETRIES:
+                    td["status"] = "failed"
+                    td["status_updated_at"] = int(time.time())
+                    td["note"] = f"Exceeded max retries ({MAX_RETRIES})"
+                    print(f"  [{td['id']}] → failed after {MAX_RETRIES} retries: {td['text'][:60]}")
+                else:
+                    td["status"] = "pending"
+                    td["status_updated_at"] = int(time.time())
+                    retry_ids.add(td["id"])
+                    print(f"  [{td['id']}] → retry {retry_count}/{MAX_RETRIES}: {td['text'][:60]}")
         save_todos(todos)
+        todos = load_todos()
 
     now = int(time.time())
     pending = [t for t in todos if t.get("status") == "pending" and not t.get("done")]
@@ -58,7 +67,7 @@ def main() -> None:
     to_spawn = []
     for t in sorted(pending, key=lambda x: x.get("created", 0)):
         pid = t.get("project_id")
-        is_retry = t["id"] in context_limit_ids
+        is_retry = t["id"] in retry_ids
         age = now - t.get("created", now)
 
         if not is_retry and age < 30:

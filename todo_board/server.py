@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import DATA_DIR, PROJECTS_DIR, TODOS_FILE
+from .config import DATA_DIR, MAX_RETRIES, PROJECTS_DIR, TODOS_FILE
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     accumulate_stats,
@@ -49,9 +49,10 @@ async def add_todo(request: Request):
     new_id = max(max((t["id"] for t in todos), default=0), load_counter()) + 1
     save_counter(new_id)
     project_id = body.get("project_id")
+    model = (body.get("model") or "").strip() or None
     active = project_has_active_worker(project_id, todos)
     will_spawn = not active
-    todos.insert(0, {
+    entry: dict = {
         "id": new_id,
         "text": text,
         "done": False,
@@ -60,7 +61,10 @@ async def add_todo(request: Request):
         "project_id": project_id,
         "note": None,
         "status_updated_at": int(time.time()),
-    })
+    }
+    if model:
+        entry["model"] = model
+    todos.insert(0, entry)
     save_todos(todos)
     if will_spawn:
         spawn_worker(new_id)
@@ -87,15 +91,24 @@ async def set_status(todo_id: int, request: Request):
                 t["tokens"] = tokens
             break
     save_todos(todos)
-    # context_limit: immediately re-queue the same todo (fresh worker, fresh context)
+    # context_limit: re-queue or fail after MAX_RETRIES
     if status == "context_limit":
         stalled = next((t for t in todos if t["id"] == todo_id), None)
         if stalled:
-            stalled["status"] = "in_progress"
-            stalled["status_updated_at"] = int(time.time())
-            stalled["progress"] = "Retrying after context limit…"
-            save_todos(todos)
-            spawn_worker(todo_id)
+            retry_count = stalled.get("retry_count", 0) + 1
+            stalled["retry_count"] = retry_count
+            if retry_count > MAX_RETRIES:
+                stalled["status"] = "failed"
+                stalled["status_updated_at"] = int(time.time())
+                stalled["progress"] = None
+                stalled["note"] = f"Exceeded max retries ({MAX_RETRIES})"
+                save_todos(todos)
+            else:
+                stalled["status"] = "in_progress"
+                stalled["status_updated_at"] = int(time.time())
+                stalled["progress"] = f"Retry {retry_count}/{MAX_RETRIES} after context limit…"
+                save_todos(todos)
+                spawn_worker(todo_id)
     # When a worker finishes, start the next pending todo in the same project
     elif status in ("done", "failed", "canceled"):
         finished = next((t for t in todos if t["id"] == todo_id), None)
@@ -298,9 +311,13 @@ async def add_project(request: Request):
     name = (body.get("name") or "").strip()
     if not name:
         return JSONResponse({"ok": False}, status_code=400)
+    model = (body.get("model") or "").strip() or None
     (PROJECTS_DIR / name).mkdir(exist_ok=True)
     projects = load_projects()
     proj = next((p for p in projects if p["name"] == name), None)
+    if proj and model is not None:
+        proj["model"] = model
+        save_projects(projects)
     return {"ok": True, "id": proj["id"] if proj else None}
 
 

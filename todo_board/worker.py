@@ -14,10 +14,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-_DATA_DIR = Path(__file__).resolve().parent.parent
+_DATA_DIR = Path(os.environ.get("TODO_BOARD_DATA_DIR", Path(__file__).resolve().parent.parent))
 TODOS_FILE = _DATA_DIR / "todos.json"
 PROJECTS_FILE = _DATA_DIR / "projects.json"
 RULES_FILE = _DATA_DIR / "rules.txt"
+SESSIONS_FILE = _DATA_DIR / "sessions.json"
 LOG_DIR = _DATA_DIR
 
 BOARD_URL = os.environ.get("TODO_BOARD_URL", "http://localhost:7842")
@@ -25,6 +26,10 @@ CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
 _memory_path = os.environ.get("MEMORY_FILE", "")
 MEMORY_FILE = Path(_memory_path) if _memory_path else None
 WORK_DIR = os.environ.get("CLAUDE_WORK_DIR") or str(Path.home())
+
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "sonnet")
+CLAUDE_MAX_TURNS = os.environ.get("CLAUDE_MAX_TURNS", "30")
+CLAUDE_MAX_BUDGET_USD = os.environ.get("CLAUDE_MAX_BUDGET_USD", "")
 
 
 def _api(path: str, data: dict) -> None:
@@ -41,53 +46,41 @@ def _api(path: str, data: dict) -> None:
         print(f"API call failed: {e}", file=sys.stderr)
 
 
-def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: worker.py <todo_id>", file=sys.stderr)
-        sys.exit(1)
+def _session_key(project_id) -> str:
+    return str(project_id) if project_id is not None else "none"
 
-    todo_id = int(sys.argv[1])
 
-    todos = json.loads(TODOS_FILE.read_text())
-    todo = next((t for t in todos if t["id"] == todo_id), None)
-    if not todo:
-        print(f"Todo #{todo_id} not found", file=sys.stderr)
-        sys.exit(1)
+def _load_sessions() -> dict:
+    if not SESSIONS_FILE.exists():
+        return {}
+    try:
+        return json.loads(SESSIONS_FILE.read_text())
+    except Exception:
+        return {}
 
-    if todo.get("status") in ("done", "failed"):
-        print(f"Todo #{todo_id} status={todo['status']}, skipping", file=sys.stderr)
-        sys.exit(0)
 
-    project_name = "General"
-    if PROJECTS_FILE.exists():
-        projects = json.loads(PROJECTS_FILE.read_text())
-        proj = next((p for p in projects if p["id"] == todo.get("project_id")), None)
-        if proj:
-            project_name = proj["name"]
+def _save_sessions(sessions: dict) -> None:
+    try:
+        SESSIONS_FILE.write_text(json.dumps(sessions, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"Failed to save sessions: {e}", file=sys.stderr)
 
-    memory = MEMORY_FILE.read_text() if MEMORY_FILE and MEMORY_FILE.exists() else ""
-    rules = RULES_FILE.read_text().strip() if RULES_FILE.exists() else ""
-    task_text = todo["text"]
-    task_preview = task_text[:60].replace('"', "'")
 
-    pid_file = LOG_DIR / f"worker_{todo_id}.pid"
-    pid_file.write_text(str(os.getpid()))
+def _build_system_prompt(rules: str, memory: str) -> str:
+    parts = []
+    if memory:
+        parts.append(f"## Project Context (Memory)\n{memory}")
+    if rules:
+        parts.append(f"## Rules\n- Read relevant files before editing\n{rules}")
+    return "\n\n".join(parts)
 
-    _api(f"/api/status/{todo_id}", {"status": "in_progress"})
-    _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
-    prompt = f"""You are processing a single todo item. Implement it fully.
-
-## Project Context (Memory)
-{memory}
+def _build_task_prompt(todo_id: int, project_name: str, task_text: str) -> str:
+    return f"""You are processing a single todo item. Implement it fully.
 
 ## Task
 Todo #{todo_id} — Project: {project_name}
 {task_text}
-
-## Rules
-- Read relevant files before editing
-{rules}
 
 ## Status Updates
 While working, emit STATUS: <one-line description> on its own line whenever you start a new step.
@@ -95,26 +88,60 @@ Examples:
   STATUS: Reading app.py
   STATUS: Writing fix to validate input
   STATUS: Running tests
-These lines are stripped from final output evaluation.
 
 ## Output
 When you finish successfully, output nothing extra (or a brief summary).
 If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 """
 
-    log_file = LOG_DIR / f"worker_{todo_id}.log"
-    start_time = time.time()
+
+def _build_cold_cmd(task_prompt: str, system_prompt: str, model: str) -> list:
+    cmd = [
+        CLAUDE_BIN, "-p", task_prompt,
+        "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--model", model,
+        "--max-turns", CLAUDE_MAX_TURNS,
+    ]
+    if system_prompt:
+        cmd += ["--append-system-prompt", system_prompt]
+    if CLAUDE_MAX_BUDGET_USD:
+        cmd += ["--max-budget-usd", CLAUDE_MAX_BUDGET_USD]
+    return cmd
+
+
+def _build_resume_cmd(session_id: str, task_prompt: str, model: str) -> list:
+    cmd = [
+        CLAUDE_BIN, "-p", "--resume", session_id, task_prompt,
+        "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--model", model,
+        "--max-turns", CLAUDE_MAX_TURNS,
+    ]
+    if CLAUDE_MAX_BUDGET_USD:
+        cmd += ["--max-budget-usd", CLAUDE_MAX_BUDGET_USD]
+    return cmd
+
+
+def _invoke_claude(cmd: list, todo_id: int) -> tuple:
+    """Run claude subprocess, stream output, report progress.
+
+    Returns (returncode, output_lines, final_result_text, token_data, session_id, stderr_out).
+    """
     proc = subprocess.Popen(
-        [CLAUDE_BIN, "-p", prompt, "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"],
+        cmd,
         cwd=WORK_DIR,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
 
-    output_lines = []
+    output_lines: list = []
     final_result_text = None
     token_data: dict = {}
+    session_id = None
 
     for raw_line in iter(proc.stdout.readline, ""):
         raw = raw_line.rstrip("\n")
@@ -139,18 +166,88 @@ If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
                             _api("/api/statusline", {"text": f"#{todo_id} → {status_text}"})
         elif etype == "result":
             final_result_text = event.get("result", "")
+            session_id = event.get("session_id")
             usage = event.get("usage", {})
             token_data = {
-                "input": (
-                    usage.get("input_tokens", 0)
-                    + usage.get("cache_creation_input_tokens", 0)
-                ),
+                "input": usage.get("input_tokens", 0),
+                "cache_creation": usage.get("cache_creation_input_tokens", 0),
+                "cache_read": usage.get("cache_read_input_tokens", 0),
                 "output": usage.get("output_tokens", 0),
             }
 
     proc.wait()
     stderr_out = proc.stderr.read()
+    return proc.returncode, output_lines, final_result_text, token_data, session_id, stderr_out
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print("Usage: worker.py <todo_id>", file=sys.stderr)
+        sys.exit(1)
+
+    todo_id = int(sys.argv[1])
+
+    todos = json.loads(TODOS_FILE.read_text())
+    todo = next((t for t in todos if t["id"] == todo_id), None)
+    if not todo:
+        print(f"Todo #{todo_id} not found", file=sys.stderr)
+        sys.exit(1)
+
+    if todo.get("status") in ("done", "failed"):
+        print(f"Todo #{todo_id} status={todo['status']}, skipping", file=sys.stderr)
+        sys.exit(0)
+
+    project_name = "General"
+    project_model = ""
+    if PROJECTS_FILE.exists():
+        projects = json.loads(PROJECTS_FILE.read_text())
+        proj = next((p for p in projects if p["id"] == todo.get("project_id")), None)
+        if proj:
+            project_name = proj.get("name", "General")
+            project_model = proj.get("model", "")
+
+    model = todo.get("model") or project_model or CLAUDE_MODEL
+
+    memory = MEMORY_FILE.read_text() if MEMORY_FILE and MEMORY_FILE.exists() else ""
+    rules = RULES_FILE.read_text().strip() if RULES_FILE.exists() else ""
+    task_text = todo["text"]
+    task_preview = task_text[:60].replace('"', "'")
+
+    pid_file = LOG_DIR / f"worker_{todo_id}.pid"
+    pid_file.write_text(str(os.getpid()))
+
+    _api(f"/api/status/{todo_id}", {"status": "in_progress"})
+    _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
+
+    session_key = _session_key(todo.get("project_id"))
+    sessions = _load_sessions()
+    prior_session = sessions.get(session_key)
+
+    system_prompt = _build_system_prompt(rules, memory)
+    task_prompt = _build_task_prompt(todo_id, project_name, task_text)
+
+    log_file = LOG_DIR / f"worker_{todo_id}.log"
+    start_time = time.time()
+
+    if prior_session:
+        cmd = _build_resume_cmd(prior_session, task_prompt, model)
+        rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+
+        if rc != 0:
+            # Session expired or invalid — fall back to cold start
+            sessions.pop(session_key, None)
+            _save_sessions(sessions)
+            cmd = _build_cold_cmd(task_prompt, system_prompt, model)
+            rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+    else:
+        cmd = _build_cold_cmd(task_prompt, system_prompt, model)
+        rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+
     duration_secs = int(time.time() - start_time)
+
+    if new_session_id:
+        sessions[session_key] = new_session_id
+        _save_sessions(sessions)
 
     if final_result_text is not None:
         output = final_result_text.strip()
@@ -162,8 +259,8 @@ If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
         "\n".join(output_lines) + ("\n\nSTDERR:\n" + stderr_out if stderr_out else "")
     )
 
-    if output.startswith("FAILED:") or proc.returncode != 0:
-        reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {proc.returncode}"
+    if output.startswith("FAILED:") or rc != 0:
+        reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {rc}"
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
     else:

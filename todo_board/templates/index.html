@@ -252,7 +252,7 @@ details[open] summary { margin-bottom: 14px; }
 <script>
 let projects = [];
 let todos = [];
-let cumulativeStats = {total_input_tokens: 0, total_output_tokens: 0, total_duration_secs: 0};
+let cumulativeStats = {total_input_tokens: 0, total_cache_creation_tokens: 0, total_cache_read_tokens: 0, total_output_tokens: 0, total_duration_secs: 0};
 const editingTodos = new Map(); // id -> current edit text in textarea
 
 function captureEditState() {
@@ -327,17 +327,27 @@ function renderTodos() {
   // Total token/runtime summary in heading — includes cumulative stats from deleted tasks
   const finished = todos.filter(t => t.done || t.status === "failed" || t.status === "context_limit" || t.status === "canceled");
   let totalIn = cumulativeStats.total_input_tokens || 0;
+  let totalCacheRead = cumulativeStats.total_cache_read_tokens || 0;
   let totalOut = cumulativeStats.total_output_tokens || 0;
   let totalSecs = cumulativeStats.total_duration_secs || 0;
   for (const t of finished) {
-    if (t.tokens) { totalIn += t.tokens.input || 0; totalOut += t.tokens.output || 0; }
+    if (t.tokens) {
+      totalIn += t.tokens.input || 0;
+      totalCacheRead += t.tokens.cache_read || 0;
+      totalOut += t.tokens.output || 0;
+    }
     if (t.duration_secs != null) totalSecs += t.duration_secs;
   }
   const statsEl = document.getElementById("h1-stats");
   if (totalIn > 0 || totalOut > 0 || totalSecs > 0) {
     const tm = Math.floor(totalSecs / 60), ts2 = totalSecs % 60;
     const rtPart = totalSecs > 0 ? (tm > 0 ? `${tm}m ${ts2}s` : `${ts2}s`) : null;
-    const tokPart = (totalIn > 0 || totalOut > 0) ? `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)}` : null;
+    let tokPart = null;
+    if (totalIn > 0 || totalOut > 0) {
+      const cachePct = (totalIn + totalCacheRead) > 0 ? Math.round(totalCacheRead / (totalIn + totalCacheRead) * 100) : 0;
+      const cacheNote = cachePct > 0 ? ` (${cachePct}% cached)` : "";
+      tokPart = `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)}${cacheNote}`;
+    }
     statsEl.textContent = [tokPart, rtPart].filter(Boolean).join(" · ");
   } else {
     statsEl.textContent = "";
@@ -432,7 +442,10 @@ function todoHtml(t, projMap) {
       parts.push(`Runtime: ${m > 0 ? `${m}m ${s}s` : `${s}s`}`);
     }
     if (t.tokens && (t.tokens.input || t.tokens.output)) {
-      parts.push(`Tokens: ${fmtTokCount(t.tokens.input || 0)}/${fmtTokCount(t.tokens.output || 0)}`);
+      const cr = t.tokens.cache_read || 0;
+      const cachePct = (t.tokens.input + cr) > 0 ? Math.round(cr / (t.tokens.input + cr) * 100) : 0;
+      const cacheNote = cachePct > 0 ? ` (${cachePct}% cached)` : "";
+      parts.push(`Tokens: ${fmtTokCount(t.tokens.input || 0)}/${fmtTokCount(t.tokens.output || 0)}${cacheNote}`);
     }
     if (parts.length > 0) {
       statsHtml = `<span class="meta-stats">${parts.join(" · ")}</span>`;

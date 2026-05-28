@@ -130,3 +130,69 @@ async def test_tasks_without_tokens_accumulate_duration_only(app, seed_todos, da
     assert stats["total_input_tokens"] == 0
     assert stats["total_output_tokens"] == 0
     assert stats["total_duration_secs"] == 120
+
+
+@pytest.mark.asyncio
+async def test_cache_tokens_accumulated(app, seed_todos, data_dir):
+    """cache_creation and cache_read fields are accumulated into stats."""
+    seed_todos([
+        _todo(1, "Task A", status="done", tokens={
+            "input": 100, "output": 50,
+            "cache_creation": 200, "cache_read": 300,
+        }),
+    ])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/delete-done")
+    stats = read_stats(data_dir)
+    assert stats["total_input_tokens"] == 100
+    assert stats["total_output_tokens"] == 50
+    assert stats["total_cache_creation_tokens"] == 200
+    assert stats["total_cache_read_tokens"] == 300
+
+
+@pytest.mark.asyncio
+async def test_cache_tokens_sum_across_tasks(app, seed_todos, data_dir):
+    """Cache token counts add up correctly across multiple tasks."""
+    seed_todos([
+        _todo(1, "Task A", status="done", tokens={
+            "input": 100, "output": 40, "cache_creation": 500, "cache_read": 1000,
+        }),
+        _todo(2, "Task B", status="done", tokens={
+            "input": 200, "output": 60, "cache_creation": 0, "cache_read": 800,
+        }),
+    ])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/delete-done")
+    stats = read_stats(data_dir)
+    assert stats["total_cache_creation_tokens"] == 500
+    assert stats["total_cache_read_tokens"] == 1800
+
+
+@pytest.mark.asyncio
+async def test_cache_tokens_default_zero_without_cache_fields(app, seed_todos, data_dir):
+    """Old-style tokens dict (no cache fields) doesn't break accumulation."""
+    seed_todos([
+        _todo(1, "Old task", status="done", tokens={"input": 100, "output": 50}),
+    ])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/delete-done")
+    stats = read_stats(data_dir)
+    assert stats["total_input_tokens"] == 100
+    assert stats.get("total_cache_creation_tokens", 0) == 0
+    assert stats.get("total_cache_read_tokens", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_stats_endpoint_includes_cache_fields(app, seed_todos, data_dir):
+    """/api/stats response includes cache token fields."""
+    seed_todos([
+        _todo(1, "Task", status="done", tokens={
+            "input": 50, "output": 20, "cache_creation": 100, "cache_read": 250,
+        }),
+    ])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        await client.post("/api/delete-done")
+        r = await client.get("/api/stats")
+    data = r.json()
+    assert data["total_cache_creation_tokens"] == 100
+    assert data["total_cache_read_tokens"] == 250

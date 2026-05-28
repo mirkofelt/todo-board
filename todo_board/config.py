@@ -14,7 +14,14 @@ COUNTER_FILE = DATA_DIR / "counter.json"
 
 PROJECTS_DIR = Path(os.environ.get("TODO_BOARD_PROJECTS_DIR", DATA_DIR.parent))
 
+SESSIONS_FILE = DATA_DIR / "sessions.json"
+
 CONTEXT_LIMIT_THRESHOLD = 25 * 60  # seconds
+
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "sonnet")
+CLAUDE_MAX_TURNS = int(os.environ.get("CLAUDE_MAX_TURNS", "30"))
+CLAUDE_MAX_BUDGET_USD = os.environ.get("CLAUDE_MAX_BUDGET_USD", "")
+MAX_RETRIES = int(os.environ.get("TODO_MAX_RETRIES", "2"))
 
 DEFAULT_PROJECTS = [{"id": 1, "name": "General"}]
 
