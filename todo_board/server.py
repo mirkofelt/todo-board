@@ -10,8 +10,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from .config import DATA_DIR, PROJECTS_DIR, TODOS_FILE
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
+    accumulate_stats,
     load_projects,
     load_rules,
+    load_stats,
     load_statusline,
     load_todos,
     save_projects,
@@ -142,6 +144,8 @@ def mark_done(todo_id: int):
 @app.post("/api/delete-done")
 def delete_all_done():
     todos = load_todos()
+    to_delete = [t for t in todos if t.get("done") or t.get("status") == "canceled"]
+    accumulate_stats(to_delete)
     save_todos([t for t in todos if not t.get("done") and t.get("status") != "canceled"])
     return {"ok": True}
 
@@ -152,6 +156,8 @@ def delete_todo(todo_id: int):
     todo = next((t for t in todos if t["id"] == todo_id), None)
     if todo and todo.get("status") == "in_progress":
         return JSONResponse({"ok": False, "error": "Cannot delete an in-progress todo"}, status_code=409)
+    if todo and (todo.get("done") or todo.get("status") in ("failed", "canceled", "context_limit")):
+        accumulate_stats([todo])
     save_todos([t for t in todos if t["id"] != todo_id])
     return {"ok": True}
 
@@ -279,6 +285,11 @@ def delete_project(project_id: int):
             t["project_id"] = None
     save_todos(todos)
     return {"ok": True}
+
+
+@app.get("/api/stats")
+def get_stats():
+    return JSONResponse(load_stats())
 
 
 @app.get("/api/state")

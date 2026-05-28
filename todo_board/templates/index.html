@@ -14,15 +14,10 @@ body {
 .container { max-width: 680px; margin: 0 auto; }
 h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .h1-stats { font-size: 11px; font-family: monospace; color: #334155; font-weight: 400; white-space: nowrap; }
-
-.statusline-bar {
-  background: #0d1f1a; border: 1px solid #10b981; border-radius: 8px;
-  padding: 10px 14px; margin-bottom: 24px;
-  display: flex; align-items: center; gap: 10px;
-  font-size: 13px; color: #6ee7b7;
+#last-activity {
+  font-size: 12px; color: #475569; font-family: monospace;
+  margin-top: -14px; margin-bottom: 18px;
 }
-.statusline-text { flex: 1; }
-.statusline-time { font-size: 11px; color: #334155; flex-shrink: 0; }
 
 .add-form { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-bottom: 32px; }
 .add-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -192,22 +187,12 @@ details[open] summary { margin-bottom: 14px; }
 .req-textarea:focus { outline: none; border-color: #10b981; }
 .save-row { display: flex; align-items: center; gap: 10px; }
 .save-status { font-size: 11px; color: #10b981; }
-#last-activity {
-  font-size: 12px; color: #475569; font-family: monospace;
-  margin-top: -14px; margin-bottom: 18px;
-}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>Todo Queue<span class="h1-stats" id="h1-stats"></span></h1>
   <div id="last-activity" style="display:none"></div>
-
-  <div id="statusline-bar" class="statusline-bar" style="display:none">
-    <span class="pulse-green"></span>
-    <span class="statusline-text" id="statusline-text"></span>
-    <span class="statusline-time" id="statusline-time"></span>
-  </div>
 
   <div class="add-form">
     <div class="add-row">
@@ -264,6 +249,7 @@ details[open] summary { margin-bottom: 14px; }
 <script>
 let projects = [];
 let todos = [];
+let cumulativeStats = {total_input_tokens: 0, total_output_tokens: 0, total_duration_secs: 0};
 const editingTodos = new Map(); // id -> current edit text in textarea
 
 function captureEditState() {
@@ -274,9 +260,10 @@ function captureEditState() {
 }
 
 async function loadAll() {
-  [projects, todos] = await Promise.all([
+  [projects, todos, cumulativeStats] = await Promise.all([
     fetch("/api/projects").then(r => r.json()),
     fetch("/api/todos").then(r => r.json()),
+    fetch("/api/stats").then(r => r.json()),
   ]);
   renderDropdown();
   renderTodos();
@@ -284,21 +271,6 @@ async function loadAll() {
 
 async function loadReq() {
   document.getElementById("req-textarea").value = await fetch("/api/requirements").then(r => r.text());
-}
-
-async function loadStatusline() {
-  const data = await fetch("/api/statusline").then(r => r.json());
-  const bar = document.getElementById("statusline-bar");
-  if (data.text) {
-    document.getElementById("statusline-text").textContent = data.text;
-    const ts = data.updated_at
-      ? new Date(data.updated_at * 1000).toLocaleString("de-DE", {hour:"2-digit",minute:"2-digit"})
-      : "";
-    document.getElementById("statusline-time").textContent = ts;
-    bar.style.display = "flex";
-  } else {
-    bar.style.display = "none";
-  }
 }
 
 function renderDropdown() {
@@ -349,9 +321,11 @@ function renderTodos() {
 
   document.getElementById("canceled-section").style.display = "none";
 
-  // Total token/runtime summary in heading
+  // Total token/runtime summary in heading — includes cumulative stats from deleted tasks
   const finished = todos.filter(t => t.done || t.status === "failed" || t.status === "context_limit" || t.status === "canceled");
-  let totalIn = 0, totalOut = 0, totalSecs = 0;
+  let totalIn = cumulativeStats.total_input_tokens || 0;
+  let totalOut = cumulativeStats.total_output_tokens || 0;
+  let totalSecs = cumulativeStats.total_duration_secs || 0;
   for (const t of finished) {
     if (t.tokens) { totalIn += t.tokens.input || 0; totalOut += t.tokens.output || 0; }
     if (t.duration_secs != null) totalSecs += t.duration_secs;
@@ -360,7 +334,7 @@ function renderTodos() {
   if (totalIn > 0 || totalOut > 0 || totalSecs > 0) {
     const tm = Math.floor(totalSecs / 60), ts2 = totalSecs % 60;
     const rtPart = totalSecs > 0 ? (tm > 0 ? `${tm}m ${ts2}s` : `${ts2}s`) : null;
-    const tokPart = (totalIn > 0 || totalOut > 0) ? `Token: ${fmtTokCount(totalIn + totalOut)}` : null;
+    const tokPart = (totalIn > 0 || totalOut > 0) ? `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)} [in]/[out]` : null;
     statsEl.textContent = [tokPart, rtPart].filter(Boolean).join(" · ");
   } else {
     statsEl.textContent = "";
@@ -533,13 +507,19 @@ async function cancelEdit(id) {
 
 async function del(id) {
   await fetch("/api/delete/" + id, { method: "POST" });
-  todos = await fetch("/api/todos").then(r => r.json());
+  [todos, cumulativeStats] = await Promise.all([
+    fetch("/api/todos").then(r => r.json()),
+    fetch("/api/stats").then(r => r.json()),
+  ]);
   renderTodos();
 }
 
 async function clearAllDone() {
   await fetch("/api/delete-done", { method: "POST" });
-  todos = await fetch("/api/todos").then(r => r.json());
+  [todos, cumulativeStats] = await Promise.all([
+    fetch("/api/todos").then(r => r.json()),
+    fetch("/api/stats").then(r => r.json()),
+  ]);
   renderTodos();
 }
 
@@ -678,9 +658,10 @@ async function pollTodos() {
   if (lastTodosMtime === data.mtime) return;
   lastTodosMtime = data.mtime;
   captureEditState();
-  [projects, todos] = await Promise.all([
+  [projects, todos, cumulativeStats] = await Promise.all([
     fetch("/api/projects").then(r => r.json()),
     fetch("/api/todos").then(r => r.json()),
+    fetch("/api/stats").then(r => r.json()),
   ]);
   renderDropdown();
   renderTodos();
@@ -694,10 +675,8 @@ async function init() {
 
 init();
 loadReq();
-loadStatusline();
 checkVersion();
 setInterval(pollTodos, 5000);
-setInterval(loadStatusline, 3000);
 setInterval(checkVersion, 5000);
 setInterval(() => {
   const now = Math.floor(Date.now() / 1000);

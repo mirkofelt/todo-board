@@ -6,6 +6,7 @@ from .config import (
     PROJECTS_DIR,
     PROJECTS_FILE,
     RULES_FILE,
+    STATS_FILE,
     STATUSLINE_FILE,
     TODOS_FILE,
     is_project_dir,
@@ -75,3 +76,25 @@ def load_statusline() -> dict:
 
 def save_statusline(data: dict) -> None:
     STATUSLINE_FILE.write_text(json.dumps(data, ensure_ascii=False))
+
+
+def load_stats() -> dict:
+    if not STATS_FILE.exists():
+        return {"total_input_tokens": 0, "total_output_tokens": 0, "total_duration_secs": 0}
+    return json.loads(STATS_FILE.read_text())
+
+
+def save_stats(data: dict) -> None:
+    STATS_FILE.write_text(json.dumps(data, ensure_ascii=False))
+
+
+def accumulate_stats(todos: list) -> None:
+    """Add tokens/duration from the given todos into the persistent stats file."""
+    stats = load_stats()
+    for t in todos:
+        if t.get("tokens"):
+            stats["total_input_tokens"] += t["tokens"].get("input", 0)
+            stats["total_output_tokens"] += t["tokens"].get("output", 0)
+        if t.get("duration_secs") is not None:
+            stats["total_duration_secs"] += t["duration_secs"]
+    save_stats(stats)
