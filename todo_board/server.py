@@ -222,6 +222,22 @@ def cancel_todo(todo_id: int):
     return {"ok": True}
 
 
+@app.post("/api/resume/{todo_id}")
+def resume_todo(todo_id: int):
+    todos = load_todos()
+    todo = next((t for t in todos if t["id"] == todo_id), None)
+    if not todo:
+        return JSONResponse({"ok": False, "error": "Todo not found"}, status_code=404)
+    if todo.get("status") != "context_limit":
+        return JSONResponse({"ok": False, "error": "Todo is not interrupted"}, status_code=409)
+    todo["status"] = "in_progress"
+    todo["status_updated_at"] = int(time.time())
+    todo["progress"] = "Resuming after context limit…"
+    save_todos(todos)
+    spawn_worker(todo_id)
+    return {"ok": True}
+
+
 @app.post("/api/lock/{todo_id}")
 async def lock_todo(todo_id: int, request: Request):
     body = await request.json()

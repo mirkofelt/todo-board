@@ -124,6 +124,8 @@ button:hover { background: #059669; }
 .status-badge.done-label { background: #0d2318; border: 1px solid #10b981; color: #10b981; }
 .btn-cancel { background: none; border: 1px solid #ca8a04; color: #ca8a04; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .btn-cancel:hover { background: #1c1400; border-color: #f59e0b; color: #f59e0b; }
+.btn-resume { background: none; border: 1px solid #f59e0b; color: #f59e0b; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn-resume:hover { background: #1c1800; border-color: #fbbf24; color: #fbbf24; }
 .pulse {
   width: 6px; height: 6px; border-radius: 50%; background: #f59e0b;
   animation: pulse 1.2s ease-in-out infinite;
@@ -450,6 +452,7 @@ function todoHtml(t, projMap) {
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
   const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
   const cancelBtn = inProgress ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
+  const resumeBtn = isContextLimit ? `<button class="btn-resume btn-sm" onclick="resumeTodo(${t.id})" title="Resume interrupted task">▶ Continue</button>` : "";
   const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
   const deleteBtn = !inProgress ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
@@ -462,7 +465,7 @@ function todoHtml(t, projMap) {
         ${note}
         ${progress}
       </div>
-      <div class="todo-actions">${cancelBtn}${editBtn}${deleteBtn}</div>
+      <div class="todo-actions">${resumeBtn}${cancelBtn}${editBtn}${deleteBtn}</div>
     </div>
     <div class="todo-meta">${idBadge}${badge}${statusBadge}${statsHtml}<span class="meta-time">${ts}</span></div>
   </div>`;
@@ -525,6 +528,12 @@ async function clearAllDone() {
 
 async function cancelTodo(id) {
   await fetch("/api/cancel/" + id, { method: "POST" });
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
+}
+
+async function resumeTodo(id) {
+  await fetch("/api/resume/" + id, { method: "POST" });
   todos = await fetch("/api/todos").then(r => r.json());
   renderTodos();
 }
