@@ -80,9 +80,9 @@ async def breakdown_todo(request: Request):
     project_id = body.get("project_id")
     if not text:
         return JSONResponse({"ok": False, "error": "Text required"}, status_code=400)
-    tasks = await asyncio.to_thread(breakdown_task, text, project_id)
+    tasks, error = await asyncio.to_thread(breakdown_task, text, project_id)
     if not tasks:
-        return JSONResponse({"ok": False, "error": "Could not break down task"}, status_code=500)
+        return JSONResponse({"ok": False, "error": error or "Could not break down task"}, status_code=500)
     return JSONResponse({"ok": True, "tasks": tasks})
 
 

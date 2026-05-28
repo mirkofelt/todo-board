@@ -68,10 +68,11 @@ def _parse_tasks(text: str) -> list[str]:
     return []
 
 
-def breakdown_task(task_text: str, project_id) -> list[str]:
+def breakdown_task(task_text: str, project_id) -> tuple[list[str], str]:
     """Break down a high-level task using Claude with the project's session.
 
-    Returns a list of subtask strings, or an empty list on failure.
+    Returns (tasks, error). On success tasks is non-empty and error is "".
+    On failure tasks is [] and error contains a human-readable reason.
     """
     rules = _RULES_FILE.read_text().strip() if _RULES_FILE.exists() else ""
     memory = ""
@@ -116,6 +117,7 @@ def breakdown_task(task_text: str, project_id) -> list[str]:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     result_text = None
     new_session_id = None
+    is_error = False
 
     for raw in iter(proc.stdout.readline, ""):
         try:
@@ -125,14 +127,29 @@ def breakdown_task(task_text: str, project_id) -> list[str]:
         if event.get("type") == "result":
             result_text = event.get("result", "")
             new_session_id = event.get("session_id")
+            is_error = bool(event.get("is_error"))
 
     proc.wait()
+    stderr = proc.stderr.read().strip()
 
-    if new_session_id:
+    if new_session_id and not is_error:
         sessions[session_key] = new_session_id
         _save_sessions(sessions)
 
-    if not result_text:
-        return []
+    if proc.returncode != 0:
+        detail = stderr[:300] if stderr else "no stderr output"
+        return [], f"Claude exited with code {proc.returncode}: {detail}"
 
-    return _parse_tasks(result_text)
+    if is_error:
+        detail = (result_text or stderr or "no details")[:300]
+        return [], f"Claude reported an error: {detail}"
+
+    if not result_text:
+        detail = stderr[:300] if stderr else "no output received"
+        return [], f"Claude returned no result: {detail}"
+
+    tasks = _parse_tasks(result_text)
+    if not tasks:
+        return [], f"Could not parse task list from Claude output: {result_text[:300]}"
+
+    return tasks, ""

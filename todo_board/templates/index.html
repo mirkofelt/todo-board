@@ -46,6 +46,8 @@ button:hover { background: #059669; }
 .btn-sm { padding: 5px 12px; font-size: 12px; }
 .btn-ghost { background: none; border: 1px solid #334155; color: #64748b; }
 .btn-ghost:hover { border-color: #94a3b8; color: #e2e8f0; background: none; }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+.btn-spinner { display: inline-block; animation: btn-spin 0.8s linear infinite; margin-right: 4px; }
 .btn-icon { background: none; border: none; color: #334155; font-size: 16px; padding: 3px 7px; cursor: pointer; }
 .btn-icon:hover { color: #ef4444; }
 
@@ -677,7 +679,7 @@ async function breakdownTodo() {
 
   const btn = document.getElementById("breakdown-btn");
   btn.disabled = true;
-  btn.textContent = "Breaking down…";
+  btn.innerHTML = '<span class="btn-spinner">⟳</span>Breaking down…';
 
   try {
     const r = await fetch("/api/breakdown", {
@@ -686,13 +688,13 @@ async function breakdownTodo() {
     });
     const data = await r.json();
     if (!data.ok || !data.tasks || !data.tasks.length) {
-      alert("Could not break down task: " + (data.error || "unknown error"));
+      alert("Breakdown failed:\n" + (data.error || "unknown error"));
       return;
     }
     ta.value = "";
     showBreakdownModal(data.tasks);
   } catch (e) {
-    alert("Error: " + e.message);
+    alert("Breakdown error: " + e.message);
   } finally {
     btn.textContent = "Break down ↓";
     btn.disabled = false;
