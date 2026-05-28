@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Runtime data — generated at startup, not tracked
+todos.json
+statusline.json
+projects.json
+rules.txt
+
+# Logs
+server.log
+worker_*.log
