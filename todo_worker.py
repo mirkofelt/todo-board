@@ -67,6 +67,7 @@ def main() -> None:
 
     # Python takes ownership of lifecycle
     _api(f"/api/status/{todo_id}", {"status": "in_progress"})
+    _api(f"/api/progress/{todo_id}", {"text": "Starting…"})
     _api("/api/statusline", {"text": f'Todo #{todo_id}: {task_preview}'})
 
     prompt = f"""You are processing a single todo item. Implement it fully.

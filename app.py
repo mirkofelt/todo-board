@@ -366,7 +366,7 @@ function todoHtml(t, projMap) {
   else if (isContextLimit) cls = "context-limit";
 
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
-  const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
+  const progress = inProgress ? `<div class="todo-progress">↳ ${esc(t.progress || "Working…")}</div>` : "";
   const deleteBtn = !inProgress ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
   return `<div class="todo-item ${cls}">
@@ -526,6 +526,7 @@ async def set_status(todo_id: int, request: Request):
     body = await request.json()
     status = body.get("status", "pending")
     todos = load_todos()
+    updated_project_id = None
     for t in todos:
         if t["id"] == todo_id:
             t["status"] = status
@@ -533,8 +534,19 @@ async def set_status(todo_id: int, request: Request):
             t["done"] = status == "done"
             if status in ("done", "failed", "blocked", "pending"):
                 t["progress"] = None
+            updated_project_id = t.get("project_id")
             break
     save_todos(todos)
+    if status in ("done", "failed") and updated_project_id is not None:
+        next_pending = next(
+            (t for t in sorted(todos, key=lambda x: x.get("created", 0))
+             if t.get("project_id") == updated_project_id
+             and t.get("status") == "pending"
+             and not t.get("done")),
+            None,
+        )
+        if next_pending:
+            _spawn_worker(next_pending["id"])
     return {"ok": True}
 
 
