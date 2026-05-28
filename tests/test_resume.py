@@ -72,3 +72,37 @@ async def test_resume_not_found(app, seed_todos):
             r = await client.post("/api/resume/999")
     assert r.status_code == 404
     mock_spawn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resume_queues_as_pending_when_project_has_active_worker(app, seed_todos, read_todos):
+    seed_todos([
+        _todo(1, "Active task", status="in_progress", project_id=1),
+        _todo(2, "Interrupted task", status="context_limit", project_id=1),
+    ])
+    with mock.patch("todo_board.server.spawn_worker") as mock_spawn:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/resume/2")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    mock_spawn.assert_not_called()
+    todos = read_todos()
+    resumed = next(t for t in todos if t["id"] == 2)
+    assert resumed["status"] == "pending"
+    assert resumed.get("progress") is None
+
+
+@pytest.mark.asyncio
+async def test_resume_spawns_immediately_when_no_active_worker_in_project(app, seed_todos, read_todos):
+    seed_todos([
+        _todo(1, "Done task", status="done", project_id=1),
+        _todo(2, "Interrupted task", status="context_limit", project_id=1),
+    ])
+    with mock.patch("todo_board.server.spawn_worker") as mock_spawn:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/api/resume/2")
+    assert r.status_code == 200
+    todos = read_todos()
+    resumed = next(t for t in todos if t["id"] == 2)
+    assert resumed["status"] == "in_progress"
+    mock_spawn.assert_called_once_with(2)

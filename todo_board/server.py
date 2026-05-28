@@ -261,11 +261,19 @@ def resume_todo(todo_id: int):
         return JSONResponse({"ok": False, "error": "Todo not found"}, status_code=404)
     if todo.get("status") != "context_limit":
         return JSONResponse({"ok": False, "error": "Todo is not interrupted"}, status_code=409)
-    todo["status"] = "in_progress"
-    todo["status_updated_at"] = int(time.time())
-    todo["progress"] = "Resuming after context limit…"
-    save_todos(todos)
-    spawn_worker(todo_id)
+    project_id = todo.get("project_id")
+    if project_has_active_worker(project_id, todos):
+        # Another task is already running in this project — queue behind it
+        todo["status"] = "pending"
+        todo["status_updated_at"] = int(time.time())
+        todo["progress"] = None
+        save_todos(todos)
+    else:
+        todo["status"] = "in_progress"
+        todo["status_updated_at"] = int(time.time())
+        todo["progress"] = "Resuming after context limit…"
+        save_todos(todos)
+        spawn_worker(todo_id)
     return {"ok": True}
 
 
