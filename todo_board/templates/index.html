@@ -460,6 +460,9 @@ function todoHtml(t, projMap) {
     if (parts.length > 0) {
       statsHtml = `<span class="meta-stats">${parts.join(" · ")}</span>`;
     }
+  } else if (inProgress && t.status_updated_at) {
+    const elapsed = Math.floor(Date.now() / 1000) - t.status_updated_at;
+    statsHtml = `<span class="meta-stats" data-started-at="${t.status_updated_at}">Runtime: ${fmtElapsed(elapsed)}</span>`;
   }
 
   let cls = "";
@@ -642,6 +645,12 @@ function updateLastActivity() {
   el.style.display = "";
 }
 
+function fmtElapsed(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 function fmtTokens(n) {
   if (n >= 1000000) return (n / 1000000).toFixed(1) + "M tok";
   if (n >= 1000) return Math.round(n / 1000) + "k tok";
@@ -690,6 +699,13 @@ checkVersion();
 setInterval(pollTodos, 5000);
 setInterval(loadStatusline, 3000);
 setInterval(checkVersion, 5000);
+setInterval(() => {
+  const now = Math.floor(Date.now() / 1000);
+  document.querySelectorAll('[data-started-at]').forEach(el => {
+    const started = parseInt(el.dataset.startedAt);
+    if (!isNaN(started)) el.textContent = `Runtime: ${fmtElapsed(now - started)}`;
+  });
+}, 1000);
 </script>
 </body>
 </html>
