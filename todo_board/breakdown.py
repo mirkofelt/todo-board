@@ -114,31 +114,54 @@ def breakdown_task(task_text: str, project_id) -> tuple[list[str], str]:
         if system_prompt:
             cmd += ["--append-system-prompt", system_prompt]
 
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    result_text = None
-    new_session_id = None
-    is_error = False
+    def _run(cmd) -> tuple:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result_text = None
+        new_session_id = None
+        is_error = False
+        for raw in iter(proc.stdout.readline, ""):
+            try:
+                event = json.loads(raw.rstrip("\n"))
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "result":
+                result_text = event.get("result", "")
+                new_session_id = event.get("session_id")
+                is_error = bool(event.get("is_error"))
+        proc.wait()
+        return proc.returncode, result_text, new_session_id, is_error, proc.stderr.read().strip()
 
-    for raw in iter(proc.stdout.readline, ""):
-        try:
-            event = json.loads(raw.rstrip("\n"))
-        except json.JSONDecodeError:
-            continue
-        if event.get("type") == "result":
-            result_text = event.get("result", "")
-            new_session_id = event.get("session_id")
-            is_error = bool(event.get("is_error"))
+    returncode, result_text, new_session_id, is_error, stderr = _run(cmd)
 
-    proc.wait()
-    stderr = proc.stderr.read().strip()
+    # Stale session → drop it and retry cold
+    if prior_session and returncode != 0:
+        sessions.pop(session_key, None)
+        _save_sessions(sessions)
+        system_parts = []
+        if memory:
+            system_parts.append(f"## Project Context\n{memory}")
+        if rules:
+            system_parts.append(f"## Rules\n{rules}")
+        system_prompt = "\n\n".join(system_parts)
+        cold_cmd = [
+            CLAUDE_BIN, "-p", prompt,
+            "--dangerously-skip-permissions",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--model", CLAUDE_MODEL,
+            "--max-turns", "3",
+        ]
+        if system_prompt:
+            cold_cmd += ["--append-system-prompt", system_prompt]
+        returncode, result_text, new_session_id, is_error, stderr = _run(cold_cmd)
 
     if new_session_id and not is_error:
         sessions[session_key] = new_session_id
         _save_sessions(sessions)
 
-    if proc.returncode != 0:
+    if returncode != 0:
         detail = stderr[:300] if stderr else "no stderr output"
-        return [], f"Claude exited with code {proc.returncode}: {detail}"
+        return [], f"Claude exited with code {returncode}: {detail}"
 
     if is_error:
         detail = (result_text or stderr or "no details")[:300]
@@ -147,6 +170,7 @@ def breakdown_task(task_text: str, project_id) -> tuple[list[str], str]:
     if not result_text:
         detail = stderr[:300] if stderr else "no output received"
         return [], f"Claude returned no result: {detail}"
+
 
     tasks = _parse_tasks(result_text)
     if not tasks:
