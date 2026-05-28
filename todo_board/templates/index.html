@@ -192,11 +192,16 @@ details[open] summary { margin-bottom: 14px; }
 .req-textarea:focus { outline: none; border-color: #10b981; }
 .save-row { display: flex; align-items: center; gap: 10px; }
 .save-status { font-size: 11px; color: #10b981; }
+#last-activity {
+  font-size: 12px; color: #475569; font-family: monospace;
+  margin-top: -14px; margin-bottom: 18px;
+}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>Todo Queue<span class="h1-stats" id="h1-stats"></span></h1>
+  <div id="last-activity" style="display:none"></div>
 
   <div id="statusline-bar" class="statusline-bar" style="display:none">
     <span class="pulse-green"></span>
@@ -360,6 +365,8 @@ function renderTodos() {
   } else {
     statsEl.textContent = "";
   }
+
+  updateLastActivity();
 }
 
 function progressCircleHtml(t) {
@@ -604,6 +611,35 @@ document.getElementById("save-req-btn").addEventListener("click", async () => {
 
 function esc(s) {
   return s ? String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") : "";
+}
+
+function relTime(ts) {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 10) return "just now";
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function updateLastActivity() {
+  const el = document.getElementById("last-activity");
+  if (!todos.length) { el.style.display = "none"; return; }
+
+  let latest = null, latestTime = 0;
+  for (const t of todos) {
+    const ts = t.status_updated_at || t.created || 0;
+    if (ts > latestTime) { latestTime = ts; latest = t; }
+  }
+  if (!latest) { el.style.display = "none"; return; }
+
+  const labels = {
+    done: "completed", in_progress: "started", failed: "failed",
+    blocked: "blocked", canceled: "canceled", context_limit: "interrupted", pending: "added",
+  };
+  const label = labels[latest.status] || latest.status;
+  el.textContent = `Task #${latest.id} ${label} · ${relTime(latestTime)}`;
+  el.style.display = "";
 }
 
 function fmtTokens(n) {
