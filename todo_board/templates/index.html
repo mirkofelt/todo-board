@@ -12,7 +12,8 @@ body {
   min-height: 100vh; padding: 32px 16px;
 }
 .container { max-width: 680px; margin: 0 auto; }
-h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; }
+h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.h1-stats { font-size: 11px; font-family: monospace; color: #334155; font-weight: 400; white-space: nowrap; }
 
 .statusline-bar {
   background: #0d1f1a; border: 1px solid #10b981; border-radius: 8px;
@@ -61,7 +62,34 @@ button:hover { background: #059669; }
 .todo-item {
   display: flex; align-items: flex-start; gap: 10px;
   background: #1e293b; border: 1px solid #334155; border-radius: 8px;
-  padding: 11px 14px; margin-bottom: 8px;
+  padding: 0 14px 11px; margin-bottom: 8px;
+  flex-direction: column; overflow: hidden;
+}
+.todo-row {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%;
+}
+.todo-statusbar {
+  width: calc(100% + 28px); height: 4px;
+  margin: 0 -14px 10px;
+  border-radius: 7px 7px 0 0;
+  background: #263347;
+}
+.todo-statusbar.pending { background: #334155; }
+.todo-statusbar.in-progress {
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 40%, #f59e0b 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+.todo-statusbar.done { background: #10b981; }
+.todo-statusbar.blocked { background: #ef4444; }
+.todo-statusbar.failed { background: #ef4444; }
+.todo-statusbar.canceled { background: #ca8a04; }
+.todo-statusbar.context-limit {
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 60%, #78350f 100%);
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 .todo-item.done { opacity: .35; transition: opacity .15s; }
 .todo-item.done:hover { opacity: 1; }
@@ -70,6 +98,7 @@ button:hover { background: #059669; }
 .todo-item.blocked { border-color: #ef4444; background: #1a0e0e; }
 .todo-item.failed { border-color: #ef4444; background: #1a0e0e; }
 .todo-item.context-limit { border-color: #f59e0b; background: #1c1800; }
+.todo-item.canceled { border-color: #ca8a04; background: #1c1800; opacity: .5; }
 
 .todo-body { flex: 1; min-width: 0; }
 .todo-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
@@ -81,7 +110,7 @@ button:hover { background: #059669; }
   font-size: 11px; color: #f59e0b; margin-top: 5px;
   font-family: monospace; opacity: .85;
 }
-.todo-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.todo-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; padding-left: 32px; width: 100%; }
 
 .badge {
   font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
@@ -96,7 +125,10 @@ button:hover { background: #059669; }
 .status-badge.blocked { background: #1e0a0a; border: 1px solid #ef4444; color: #ef4444; }
 .status-badge.failed { background: #1e0a0a; border: 1px solid #ef4444; color: #ef4444; }
 .status-badge.context-limit { background: #1c1800; border: 1px solid #f59e0b; color: #fbbf24; }
+.status-badge.canceled { background: #1c1400; border: 1px solid #ca8a04; color: #ca8a04; }
 .status-badge.done-label { background: #0d2318; border: 1px solid #10b981; color: #10b981; }
+.btn-cancel { background: none; border: 1px solid #ca8a04; color: #ca8a04; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.btn-cancel:hover { background: #1c1400; border-color: #f59e0b; color: #f59e0b; }
 .pulse {
   width: 6px; height: 6px; border-radius: 50%; background: #f59e0b;
   animation: pulse 1.2s ease-in-out infinite;
@@ -110,9 +142,14 @@ button:hover { background: #059669; }
   50% { opacity: .4; transform: scale(.7); }
 }
 
-.meta-time { font-size: 11px; color: #334155; }
+.meta-time { font-size: 11px; color: #334155; margin-left: auto; }
+.meta-stats { font-size: 10px; color: #334155; font-family: monospace; }
 .todo-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: flex-start; padding-top: 1px; }
 .empty { color: #334155; font-size: 13px; padding: 8px 0; }
+.todo-circle { flex-shrink: 0; margin-top: 3px; }
+@keyframes todo-circle-fill {
+  to { stroke-dashoffset: 0; }
+}
 .divider { border: none; border-top: 1px solid #1e293b; margin: 16px 0; }
 
 details { margin-bottom: 28px; }
@@ -134,6 +171,18 @@ details[open] summary { margin-bottom: 14px; }
 .add-project-row { display: flex; gap: 8px; }
 .add-project-row input { flex: 1; }
 
+.btn-edit { background: none; border: none; color: #475569; font-size: 15px; padding: 3px 6px; cursor: pointer; line-height: 1; }
+.btn-edit:hover { color: #10b981; }
+.todo-item.editing { border-color: #10b981; background: #0d1f1a; }
+.todo-statusbar.editing { background: #10b981; opacity: .45; }
+.todo-edit-form { width: 100%; }
+.todo-edit-textarea {
+  width: 100%; background: #0f172a; border: 1px solid #10b981; border-radius: 6px;
+  color: #f1f5f9; padding: 9px 12px; font-size: 13px; font-family: inherit;
+  resize: vertical; min-height: 60px; margin-bottom: 8px; display: block;
+}
+.todo-edit-textarea:focus { outline: none; border-color: #34d399; }
+.todo-edit-actions { display: flex; gap: 8px; }
 .req-textarea {
   width: 100%; background: #1e293b; border: 1px solid #334155;
   border-radius: 8px; color: #94a3b8; padding: 12px 14px;
@@ -147,7 +196,7 @@ details[open] summary { margin-bottom: 14px; }
 </head>
 <body>
 <div class="container">
-  <h1>Todo Queue</h1>
+  <h1>Todo Queue<span class="h1-stats" id="h1-stats"></span></h1>
 
   <div id="statusline-bar" class="statusline-bar" style="display:none">
     <span class="pulse-green"></span>
@@ -181,8 +230,20 @@ details[open] summary { margin-bottom: 14px; }
   </div>
 
   <div class="section" id="done-section">
-    <div class="section-label">Done</div>
+    <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span>Done</span>
+      <button class="btn-sm btn-ghost" id="clear-done-btn" onclick="clearAllDone()" style="text-transform:none;letter-spacing:0;font-size:11px">🗑️ Clear</button>
+    </div>
     <div id="done-list"></div>
+    <details id="done-overflow" style="display:none;margin-bottom:0">
+      <summary id="done-overflow-summary"></summary>
+      <div id="done-overflow-list"></div>
+    </details>
+  </div>
+
+  <div class="section" id="canceled-section">
+    <div class="section-label">Canceled</div>
+    <div id="canceled-list"></div>
   </div>
 
   <details id="req-details">
@@ -198,6 +259,14 @@ details[open] summary { margin-bottom: 14px; }
 <script>
 let projects = [];
 let todos = [];
+const editingTodos = new Map(); // id -> current edit text in textarea
+
+function captureEditState() {
+  document.querySelectorAll('.todo-edit-textarea').forEach(ta => {
+    const id = parseInt(ta.dataset.todoId);
+    if (!isNaN(id)) editingTodos.set(id, ta.value);
+  });
+}
 
 async function loadAll() {
   [projects, todos] = await Promise.all([
@@ -237,10 +306,15 @@ function renderDropdown() {
 }
 
 function renderTodos() {
+  // Drop edit state for todos that are no longer locked
+  editingTodos.forEach((_, id) => {
+    const todo = todos.find(t => t.id === id);
+    if (!todo || !todo.locked) editingTodos.delete(id);
+  });
   const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
-  const pending = todos.filter(t => !t.done && t.status !== "in_progress");
+  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled");
   const inProgress = todos.filter(t => t.status === "in_progress");
-  const done = todos.filter(t => t.done);
+  const done = todos.filter(t => t.done || t.status === "canceled");
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
   document.getElementById("pending-list").innerHTML =
@@ -250,9 +324,65 @@ function renderTodos() {
   document.getElementById("inprogress-list").innerHTML =
     inProgress.map(t => todoHtml(t, projMap)).join("") || "";
 
+  const recentDone = done.slice(0, 3);
+  const olderDone = done.slice(3);
+
   document.getElementById("done-section").style.display = done.length ? "" : "none";
   document.getElementById("done-list").innerHTML =
-    done.map(t => todoHtml(t, projMap)).join("") || "";
+    recentDone.map(t => todoHtml(t, projMap)).join("") || "";
+
+  const doneOverflow = document.getElementById("done-overflow");
+  if (olderDone.length > 0) {
+    document.getElementById("done-overflow-list").innerHTML =
+      olderDone.map(t => todoHtml(t, projMap)).join("");
+    document.getElementById("done-overflow-summary").textContent =
+      `${olderDone.length} more…`;
+    doneOverflow.style.display = "";
+  } else {
+    doneOverflow.style.display = "none";
+  }
+
+  document.getElementById("canceled-section").style.display = "none";
+
+  // Total token/runtime summary in heading
+  const finished = todos.filter(t => t.done || t.status === "failed" || t.status === "context_limit" || t.status === "canceled");
+  let totalIn = 0, totalOut = 0, totalSecs = 0;
+  for (const t of finished) {
+    if (t.tokens) { totalIn += t.tokens.input || 0; totalOut += t.tokens.output || 0; }
+    if (t.duration_secs != null) totalSecs += t.duration_secs;
+  }
+  const statsEl = document.getElementById("h1-stats");
+  if (totalIn > 0 || totalOut > 0 || totalSecs > 0) {
+    const tm = Math.floor(totalSecs / 60), ts2 = totalSecs % 60;
+    const rtPart = totalSecs > 0 ? (tm > 0 ? `${tm}m ${ts2}s` : `${ts2}s`) : null;
+    const tokPart = (totalIn > 0 || totalOut > 0) ? `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)} [in]/[out]` : null;
+    statsEl.textContent = [tokPart, rtPart].filter(Boolean).join(" · ");
+  } else {
+    statsEl.textContent = "";
+  }
+}
+
+function progressCircleHtml(t) {
+  const r = 8, size = 22, cx = size / 2, cy = size / 2;
+  const circ = (2 * Math.PI * r).toFixed(2);
+  if (t.done) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#10b981"/><polyline points="7,12 10,15 15,8" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  if (t.status === 'failed' || t.status === 'blocked') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#ef4444"/><line x1="8" y1="8" x2="14" y2="14" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="8" x2="8" y2="14" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`;
+  }
+  if (t.status === 'context_limit') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#f59e0b"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">!</text></svg>`;
+  }
+  if (t.status === 'canceled') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#475569" stroke-width="2"/></svg>`;
+  }
+  if (t.status === 'in_progress') {
+    const elapsed = (Date.now() / 1000) - (t.status_updated_at || 0);
+    const delay = (-Math.min(elapsed, 299)).toFixed(1);
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="animation:todo-circle-fill 300s linear forwards;animation-delay:${delay}s"/></svg>`;
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#334155" stroke-width="2"/></svg>`;
 }
 
 function todoHtml(t, projMap) {
@@ -260,12 +390,39 @@ function todoHtml(t, projMap) {
   const isBlocked = t.status === "blocked";
   const isFailed = t.status === "failed";
   const isContextLimit = t.status === "context_limit";
+  const isCanceled = t.status === "canceled";
   const isDone = t.done;
+  const isLocked = !!t.locked;
 
   const idBadge = `<span style="color:#475569;font-size:11px;font-family:monospace;flex-shrink:0">#${t.id}</span>`;
 
   const badge = t.project_id && projMap[t.project_id]
     ? `<span class="badge">${esc(projMap[t.project_id])}</span>` : "";
+
+  const ts = new Date(t.created * 1000).toLocaleString("de-DE", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+  // Render inline edit form when locked
+  if (isLocked) {
+    const editVal = editingTodos.has(t.id) ? editingTodos.get(t.id) : t.text;
+    return `<div class="todo-item editing">
+      <div class="todo-statusbar editing"></div>
+      <div class="todo-row">
+        ${progressCircleHtml(t)}
+        <div class="todo-body">
+          <div class="todo-edit-form">
+            <textarea class="todo-edit-textarea" data-todo-id="${t.id}" rows="3">${esc(editVal)}</textarea>
+            <div class="todo-edit-actions">
+              <button class="btn-sm" onclick="saveEdit(${t.id})">Save</button>
+              <button class="btn-sm btn-ghost" onclick="cancelEdit(${t.id})">Cancel</button>
+            </div>
+          </div>
+          ${t.note ? `<div class="todo-note">${esc(t.note)}</div>` : ""}
+        </div>
+        <div class="todo-actions"></div>
+      </div>
+      <div class="todo-meta">${idBadge}${badge}<span class="status-badge" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#0d2318;border:1px solid #10b981;color:#10b981;text-transform:uppercase;letter-spacing:.06em">✎ Editing</span><span class="meta-time">${ts}</span></div>
+    </div>`;
+  }
 
   let statusBadge = "";
   if (isDone) {
@@ -278,9 +435,25 @@ function todoHtml(t, projMap) {
     statusBadge = `<span class="status-badge failed">✗ Failed</span>`;
   } else if (isContextLimit) {
     statusBadge = `<span class="status-badge context-limit">⚡ Interrupted</span>`;
+  } else if (isCanceled) {
+    statusBadge = `<span class="status-badge canceled">⊗ Canceled</span>`;
   }
 
-  const ts = new Date(t.created * 1000).toLocaleString("de-DE", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+  let statsHtml = "";
+  if (isDone || isFailed || isCanceled) {
+    const parts = [];
+    if (t.duration_secs != null) {
+      const m = Math.floor(t.duration_secs / 60);
+      const s = t.duration_secs % 60;
+      parts.push(`Runtime: ${m > 0 ? `${m}m ${s}s` : `${s}s`}`);
+    }
+    if (t.tokens && (t.tokens.input || t.tokens.output)) {
+      parts.push(`Tokens: ${fmtTokCount(t.tokens.input || 0)}/${fmtTokCount(t.tokens.output || 0)}`);
+    }
+    if (parts.length > 0) {
+      statsHtml = `<span class="meta-stats">${parts.join(" · ")}</span>`;
+    }
+  }
 
   let cls = "";
   if (isDone) cls = "done";
@@ -288,24 +461,80 @@ function todoHtml(t, projMap) {
   else if (isBlocked) cls = "blocked";
   else if (isFailed) cls = "failed";
   else if (isContextLimit) cls = "context-limit";
+  else if (isCanceled) cls = "canceled";
 
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
   const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
+  const cancelBtn = inProgress ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
+  const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
   const deleteBtn = !inProgress ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
   return `<div class="todo-item ${cls}">
-    <div class="todo-body">
-      <div class="todo-text">${esc(t.text)}</div>
-      ${note}
-      ${progress}
-      <div class="todo-meta">${idBadge}${badge}${statusBadge}<span class="meta-time">${ts}</span></div>
+    <div class="todo-statusbar ${cls || 'pending'}"></div>
+    <div class="todo-row">
+      ${progressCircleHtml(t)}
+      <div class="todo-body">
+        <div class="todo-text">${esc(t.text)}</div>
+        ${note}
+        ${progress}
+      </div>
+      <div class="todo-actions">${cancelBtn}${editBtn}${deleteBtn}</div>
     </div>
-    <div class="todo-actions">${deleteBtn}</div>
+    <div class="todo-meta">${idBadge}${badge}${statusBadge}${statsHtml}<span class="meta-time">${ts}</span></div>
   </div>`;
+}
+
+async function startEdit(id) {
+  const t = todos.find(t => t.id === id);
+  if (t) editingTodos.set(id, t.text);
+  await fetch("/api/lock/" + id, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({locked: true}),
+  });
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
+  // Focus the textarea after render
+  const ta = document.querySelector(`.todo-edit-textarea[data-todo-id="${id}"]`);
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+async function saveEdit(id) {
+  const ta = document.querySelector(`.todo-edit-textarea[data-todo-id="${id}"]`);
+  const text = ta ? ta.value.trim() : "";
+  if (!text) return;
+  await fetch("/api/edit/" + id, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({text}),
+  });
+  editingTodos.delete(id);
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
+}
+
+async function cancelEdit(id) {
+  await fetch("/api/lock/" + id, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({locked: false}),
+  });
+  editingTodos.delete(id);
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
 }
 
 async function del(id) {
   await fetch("/api/delete/" + id, { method: "POST" });
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
+}
+
+async function clearAllDone() {
+  await fetch("/api/delete-done", { method: "POST" });
+  todos = await fetch("/api/todos").then(r => r.json());
+  renderTodos();
+}
+
+async function cancelTodo(id) {
+  await fetch("/api/cancel/" + id, { method: "POST" });
   todos = await fetch("/api/todos").then(r => r.json());
   renderTodos();
 }
@@ -350,6 +579,14 @@ async function addTodo() {
   loadAll();
 }
 
+document.addEventListener("keydown", e => {
+  if (!e.target.classList.contains("todo-edit-textarea")) return;
+  const id = parseInt(e.target.dataset.todoId);
+  if (isNaN(id)) return;
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(id); }
+  if (e.key === "Escape") { e.preventDefault(); cancelEdit(id); }
+});
+
 document.getElementById("add-btn").addEventListener("click", addTodo);
 document.getElementById("new-todo").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTodo(); }
@@ -369,6 +606,18 @@ function esc(s) {
   return s ? String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") : "";
 }
 
+function fmtTokens(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M tok";
+  if (n >= 1000) return Math.round(n / 1000) + "k tok";
+  return n + " tok";
+}
+
+function fmtTokCount(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return Math.round(n / 1000) + "k";
+  return String(n);
+}
+
 let appVersion = null;
 async function checkVersion() {
   const data = await fetch("/api/version").then(r => r.json()).catch(() => null);
@@ -377,11 +626,32 @@ async function checkVersion() {
   if (data.version !== appVersion) window.location.reload();
 }
 
-loadAll();
+let lastTodosMtime = null;
+async function pollTodos() {
+  const data = await fetch("/api/state").then(r => r.json()).catch(() => null);
+  if (!data) return;
+  if (lastTodosMtime === data.mtime) return;
+  lastTodosMtime = data.mtime;
+  captureEditState();
+  [projects, todos] = await Promise.all([
+    fetch("/api/projects").then(r => r.json()),
+    fetch("/api/todos").then(r => r.json()),
+  ]);
+  renderDropdown();
+  renderTodos();
+}
+
+async function init() {
+  await loadAll();
+  const stateData = await fetch("/api/state").then(r => r.json()).catch(() => null);
+  if (stateData) lastTodosMtime = stateData.mtime;
+}
+
+init();
 loadReq();
 loadStatusline();
 checkVersion();
-setInterval(loadAll, 5000);
+setInterval(pollTodos, 5000);
 setInterval(loadStatusline, 3000);
 setInterval(checkVersion, 5000);
 </script>
