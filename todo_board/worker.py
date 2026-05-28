@@ -10,12 +10,14 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 _DATA_DIR = Path(__file__).resolve().parent.parent
 TODOS_FILE = _DATA_DIR / "todos.json"
 PROJECTS_FILE = _DATA_DIR / "projects.json"
+RULES_FILE = _DATA_DIR / "rules.txt"
 LOG_DIR = _DATA_DIR
 
 BOARD_URL = os.environ.get("TODO_BOARD_URL", "http://localhost:7842")
@@ -64,8 +66,12 @@ def main() -> None:
             project_name = proj["name"]
 
     memory = MEMORY_FILE.read_text() if MEMORY_FILE and MEMORY_FILE.exists() else ""
+    rules = RULES_FILE.read_text().strip() if RULES_FILE.exists() else ""
     task_text = todo["text"]
     task_preview = task_text[:60].replace('"', "'")
+
+    pid_file = LOG_DIR / f"worker_{todo_id}.pid"
+    pid_file.write_text(str(os.getpid()))
 
     _api(f"/api/status/{todo_id}", {"status": "in_progress"})
     _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
@@ -81,9 +87,7 @@ Todo #{todo_id} — Project: {project_name}
 
 ## Rules
 - Read relevant files before editing
-- All code and commits must be in English
-- No credentials, IPs, or personal data in source files
-- No CDN — bundle all JS/CSS locally
+{rules}
 
 ## Status Updates
 While working, emit STATUS: <one-line description> on its own line whenever you start a new step.
@@ -99,8 +103,9 @@ If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 """
 
     log_file = LOG_DIR / f"worker_{todo_id}.log"
+    start_time = time.time()
     proc = subprocess.Popen(
-        [CLAUDE_BIN, "-p", prompt, "--dangerously-skip-permissions"],
+        [CLAUDE_BIN, "-p", prompt, "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"],
         cwd=WORK_DIR,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -108,17 +113,50 @@ If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
     )
 
     output_lines = []
-    for line in iter(proc.stdout.readline, ""):
-        stripped = line.rstrip("\n")
-        output_lines.append(stripped)
-        if stripped.startswith("STATUS:"):
-            _api(f"/api/progress/{todo_id}", {"text": stripped[7:].strip()[:150]})
+    final_result_text = None
+    token_data: dict = {}
+
+    for raw_line in iter(proc.stdout.readline, ""):
+        raw = raw_line.rstrip("\n")
+        try:
+            event = json.loads(raw)
+        except json.JSONDecodeError:
+            output_lines.append(raw)
+            continue
+
+        etype = event.get("type")
+        if etype == "assistant":
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") == "text":
+                    for text_line in block["text"].split("\n"):
+                        text_line = text_line.rstrip()
+                        if not text_line:
+                            continue
+                        output_lines.append(text_line)
+                        if text_line.startswith("STATUS:"):
+                            status_text = text_line[7:].strip()[:150]
+                            _api(f"/api/progress/{todo_id}", {"text": status_text})
+                            _api("/api/statusline", {"text": f"#{todo_id} → {status_text}"})
+        elif etype == "result":
+            final_result_text = event.get("result", "")
+            usage = event.get("usage", {})
+            token_data = {
+                "input": (
+                    usage.get("input_tokens", 0)
+                    + usage.get("cache_creation_input_tokens", 0)
+                ),
+                "output": usage.get("output_tokens", 0),
+            }
 
     proc.wait()
     stderr_out = proc.stderr.read()
+    duration_secs = int(time.time() - start_time)
 
-    non_status_lines = [l for l in output_lines if not l.startswith("STATUS:")]
-    output = "\n".join(non_status_lines).strip()
+    if final_result_text is not None:
+        output = final_result_text.strip()
+    else:
+        non_status_lines = [l for l in output_lines if not l.startswith("STATUS:")]
+        output = "\n".join(non_status_lines).strip()
 
     log_file.write_text(
         "\n".join(output_lines) + ("\n\nSTDERR:\n" + stderr_out if stderr_out else "")
@@ -126,12 +164,13 @@ If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 
     if output.startswith("FAILED:") or proc.returncode != 0:
         reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {proc.returncode}"
-        _api(f"/api/status/{todo_id}", {"status": "failed"})
+        _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
     else:
-        _api(f"/api/status/{todo_id}", {"status": "done"})
+        _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data})
 
     _api("/api/statusline", {"text": ""})
+    pid_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

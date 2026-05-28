@@ -1,10 +1,13 @@
+import os
+import signal
+import subprocess
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import PROJECTS_DIR
+from .config import DATA_DIR, PROJECTS_DIR, TODOS_FILE
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     load_projects,
@@ -63,6 +66,8 @@ async def add_todo(request: Request):
 async def set_status(todo_id: int, request: Request):
     body = await request.json()
     status = body.get("status", "pending")
+    duration_secs = body.get("duration_secs")
+    tokens = body.get("tokens")
     todos = load_todos()
     for t in todos:
         if t["id"] == todo_id:
@@ -71,16 +76,20 @@ async def set_status(todo_id: int, request: Request):
             t["done"] = status == "done"
             if status in ("done", "failed", "blocked", "pending"):
                 t["progress"] = None
+            if duration_secs is not None:
+                t["duration_secs"] = int(duration_secs)
+            if tokens:
+                t["tokens"] = tokens
             break
     save_todos(todos)
     # When a worker finishes, start the next pending todo in the same project
-    if status in ("done", "failed"):
+    if status in ("done", "failed", "canceled"):
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
             pid = finished["project_id"]
             next_todo = next(
                 (t for t in reversed(todos)
-                 if t.get("project_id") == pid and t.get("status") == "pending"),
+                 if t.get("project_id") == pid and t.get("status") == "pending" and not t.get("locked")),
                 None,
             )
             if next_todo:
@@ -130,6 +139,13 @@ def mark_done(todo_id: int):
     return {"ok": True}
 
 
+@app.post("/api/delete-done")
+def delete_all_done():
+    todos = load_todos()
+    save_todos([t for t in todos if not t.get("done") and t.get("status") != "canceled"])
+    return {"ok": True}
+
+
 @app.post("/api/delete/{todo_id}")
 def delete_todo(todo_id: int):
     todos = load_todos()
@@ -137,6 +153,90 @@ def delete_todo(todo_id: int):
     if todo and todo.get("status") == "in_progress":
         return JSONResponse({"ok": False, "error": "Cannot delete an in-progress todo"}, status_code=409)
     save_todos([t for t in todos if t["id"] != todo_id])
+    return {"ok": True}
+
+
+@app.post("/api/cancel/{todo_id}")
+def cancel_todo(todo_id: int):
+    pid_file = DATA_DIR / f"worker_{todo_id}.pid"
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except (ProcessLookupError, ValueError, OSError):
+            pass
+        pid_file.unlink(missing_ok=True)
+
+    work_dir = os.environ.get("CLAUDE_WORK_DIR") or str(Path.home())
+    try:
+        subprocess.run(
+            ["git", "-C", work_dir, "reset", "--hard", "HEAD"],
+            capture_output=True, timeout=10,
+        )
+        subprocess.run(
+            ["git", "-C", work_dir, "clean", "-fd"],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass
+
+    todos = load_todos()
+    for t in todos:
+        if t["id"] == todo_id:
+            t["status"] = "canceled"
+            t["done"] = False
+            t["status_updated_at"] = int(time.time())
+            t["progress"] = None
+            break
+    save_todos(todos)
+
+    canceled = next((t for t in todos if t["id"] == todo_id), None)
+    if canceled and canceled.get("project_id"):
+        project_id = canceled["project_id"]
+        next_todo = next(
+            (t for t in reversed(todos)
+             if t.get("project_id") == project_id and t.get("status") == "pending" and not t.get("locked")),
+            None,
+        )
+        if next_todo:
+            next_todo["status"] = "in_progress"
+            next_todo["status_updated_at"] = int(time.time())
+            save_todos(todos)
+            spawn_worker(next_todo["id"])
+
+    return {"ok": True}
+
+
+@app.post("/api/lock/{todo_id}")
+async def lock_todo(todo_id: int, request: Request):
+    body = await request.json()
+    locked = bool(body.get("locked", True))
+    todos = load_todos()
+    for t in todos:
+        if t["id"] == todo_id:
+            if t.get("status") == "in_progress":
+                return JSONResponse({"ok": False, "error": "Cannot lock an in-progress todo"}, status_code=409)
+            t["locked"] = locked
+            break
+    save_todos(todos)
+    return {"ok": True}
+
+
+@app.post("/api/edit/{todo_id}")
+async def edit_todo(todo_id: int, request: Request):
+    body = await request.json()
+    text = (body.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"ok": False, "error": "Text cannot be empty"}, status_code=400)
+    todos = load_todos()
+    for t in todos:
+        if t["id"] == todo_id:
+            if t.get("status") == "in_progress":
+                return JSONResponse({"ok": False, "error": "Cannot edit an in-progress todo"}, status_code=409)
+            t["text"] = text
+            t["locked"] = False
+            break
+    save_todos(todos)
     return {"ok": True}
 
 
@@ -179,6 +279,12 @@ def delete_project(project_id: int):
             t["project_id"] = None
     save_todos(todos)
     return {"ok": True}
+
+
+@app.get("/api/state")
+def get_state():
+    mtime = TODOS_FILE.stat().st_mtime if TODOS_FILE.exists() else 0
+    return JSONResponse({"mtime": mtime})
 
 
 @app.get("/api/version")
