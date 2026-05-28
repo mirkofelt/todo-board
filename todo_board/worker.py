@@ -75,14 +75,18 @@ def _build_system_prompt(rules: str, memory: str) -> str:
     return "\n\n".join(parts)
 
 
-def _build_task_prompt(todo_id: int, project_name: str, task_text: str) -> str:
-    return f"""You are processing a single todo item. Implement it fully.
+def _build_task_prompt(todo_id: int, project_name: str, task_text: str, prev_result: str = "") -> str:
+    parts = [f"""You are processing a single todo item. Implement it fully.
 
 ## Task
 Todo #{todo_id} — Project: {project_name}
-{task_text}
+{task_text}"""]
+    if prev_result:
+        parts.append(f"""## Previous Task Output
+The preceding task in this sequence produced the following output — use it as context:
 
-## Status Updates
+{prev_result}""")
+    parts.append("""## Status Updates
 While working, emit STATUS: <one-line description> on its own line whenever you start a new step.
 Examples:
   STATUS: Reading app.py
@@ -92,7 +96,8 @@ Examples:
 ## Output
 When you finish successfully, output nothing extra (or a brief summary).
 If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
-"""
+""")
+    return "\n\n".join(parts)
 
 
 def _build_cold_cmd(task_prompt: str, system_prompt: str, model: str) -> list:
@@ -231,6 +236,13 @@ def main() -> None:
     task_text = todo["text"]
     task_preview = task_text[:60].replace('"', "'")
 
+    prev_result = ""
+    prev_task_id = todo.get("prev_task_id")
+    if prev_task_id:
+        prev_todo = next((t for t in todos if t["id"] == prev_task_id), None)
+        if prev_todo and prev_todo.get("result"):
+            prev_result = prev_todo["result"]
+
     pid_file = LOG_DIR / f"worker_{todo_id}.pid"
     pid_file.write_text(str(os.getpid()))
 
@@ -242,7 +254,7 @@ def main() -> None:
     prior_session = sessions.get(session_key)
 
     system_prompt = _build_system_prompt(rules, memory)
-    task_prompt = _build_task_prompt(todo_id, project_name, task_text)
+    task_prompt = _build_task_prompt(todo_id, project_name, task_text, prev_result)
 
     log_file = LOG_DIR / f"worker_{todo_id}.log"
     start_time = time.time()
@@ -286,7 +298,7 @@ def main() -> None:
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
     else:
-        _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data})
+        _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]})
 
     _api("/api/statusline", {"text": ""})
     pid_file.unlink(missing_ok=True)

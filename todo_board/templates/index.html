@@ -731,11 +731,16 @@ async function approveBreakdown() {
   btn.disabled = true;
   btn.textContent = `Adding 0 / ${texts.length}…`;
 
+  let prevId = null;
   for (let i = 0; i < texts.length; i++) {
-    await fetch("/api/add", {
+    const body = {text: texts[i], project_id: _breakdownProjectId};
+    if (prevId !== null) body.prev_task_id = prevId;
+    const r = await fetch("/api/add", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({text: texts[i], project_id: _breakdownProjectId}),
+      body: JSON.stringify(body),
     });
+    const data = await r.json();
+    prevId = data.id ?? null;
     btn.textContent = `Adding ${i + 1} / ${texts.length}…`;
   }
 

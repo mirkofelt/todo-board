@@ -51,6 +51,7 @@ async def add_todo(request: Request):
     save_counter(new_id)
     project_id = body.get("project_id")
     model = (body.get("model") or "").strip() or None
+    prev_task_id = body.get("prev_task_id")
     active = project_has_active_worker(project_id, todos)
     will_spawn = not active
     entry: dict = {
@@ -65,6 +66,8 @@ async def add_todo(request: Request):
     }
     if model:
         entry["model"] = model
+    if prev_task_id is not None:
+        entry["prev_task_id"] = int(prev_task_id)
     todos.insert(0, entry)
     save_todos(todos)
     if will_spawn:
@@ -92,6 +95,7 @@ async def set_status(todo_id: int, request: Request):
     status = body.get("status", "pending")
     duration_secs = body.get("duration_secs")
     tokens = body.get("tokens")
+    result = body.get("result")
     todos = load_todos()
     for t in todos:
         if t["id"] == todo_id:
@@ -104,6 +108,8 @@ async def set_status(todo_id: int, request: Request):
                 t["duration_secs"] = int(duration_secs)
             if tokens:
                 t["tokens"] = tokens
+            if result is not None and status == "done":
+                t["result"] = str(result)[:3000]
             break
     save_todos(todos)
     # context_limit: re-queue or fail after MAX_RETRIES
