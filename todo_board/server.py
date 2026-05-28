@@ -84,8 +84,17 @@ async def set_status(todo_id: int, request: Request):
                 t["tokens"] = tokens
             break
     save_todos(todos)
+    # context_limit: immediately re-queue the same todo (fresh worker, fresh context)
+    if status == "context_limit":
+        stalled = next((t for t in todos if t["id"] == todo_id), None)
+        if stalled:
+            stalled["status"] = "in_progress"
+            stalled["status_updated_at"] = int(time.time())
+            stalled["progress"] = "Retrying after context limit…"
+            save_todos(todos)
+            spawn_worker(todo_id)
     # When a worker finishes, start the next pending todo in the same project
-    if status in ("done", "failed", "canceled"):
+    elif status in ("done", "failed", "canceled"):
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
             pid = finished["project_id"]
