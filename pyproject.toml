@@ -1,0 +1,9 @@
+[project]
+name = "todo-board"
+version = "0.1.0"
+description = "Lightweight task queue and web UI for AI agent workflows"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn>=0.29",
+]

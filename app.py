@@ -16,10 +16,6 @@ STATUSLINE_FILE = BASE / "statusline.json"
 
 DEFAULT_PROJECTS = [
     {"id": 1, "name": "General"},
-    {"id": 2, "name": "coupon-extension"},
-    {"id": 3, "name": "sensor-dashboard"},
-    {"id": 4, "name": "home-recorder"},
-    {"id": 5, "name": "btc-outlook"},
 ]
 
 DEFAULT_REQUIREMENTS = """\

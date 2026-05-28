@@ -18,8 +18,10 @@ worker subprocesses (Claude CLI) and their status tracked in real time.
 - Python 3.11+
 - `claude` CLI in PATH (or set `CLAUDE_BIN`)
 
-```
-pip install -r requirements.txt
+```bash
+pip install fastapi uvicorn
+# or
+pip install -e .
 ```
 
 ## Running
@@ -36,8 +38,9 @@ Open [http://localhost:7842](http://localhost:7842).
 |---|---|---|
 | `TODO_BOARD_PORT` | `7842` | Port for the web server |
 | `TODO_BOARD_URL` | `http://localhost:7842` | Base URL used by workers to call back |
-| `CLAUDE_BIN` | `claude` | Path to the Claude CLI binary |
-| `MEMORY_FILE` | _(none)_ | Optional path to a markdown memory file injected into each worker prompt |
+| `CLAUDE_BIN` | `claude` (auto-detected) | Path to the Claude CLI binary |
+| `MEMORY_FILE` | _(none)_ | Optional path to a markdown file injected as context into each worker prompt |
+| `CLAUDE_WORK_DIR` | `$HOME` | Working directory for Claude worker subprocesses |
 
 ## API
 
