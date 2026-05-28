@@ -41,18 +41,19 @@ async def add_todo(request: Request):
     new_id = max((t["id"] for t in todos), default=0) + 1
     project_id = body.get("project_id")
     active = project_has_active_worker(project_id, todos)
+    will_spawn = not active
     todos.insert(0, {
         "id": new_id,
         "text": text,
         "done": False,
-        "status": "pending",
+        "status": "in_progress" if will_spawn else "pending",
         "created": int(time.time()),
         "project_id": project_id,
         "note": None,
         "status_updated_at": int(time.time()),
     })
     save_todos(todos)
-    if not active:
+    if will_spawn:
         spawn_worker(new_id)
     return {"ok": True, "id": new_id}
 
@@ -71,6 +72,18 @@ async def set_status(todo_id: int, request: Request):
                 t["progress"] = None
             break
     save_todos(todos)
+    # When a worker finishes, start the next pending todo in the same project
+    if status in ("done", "failed"):
+        finished = next((t for t in todos if t["id"] == todo_id), None)
+        if finished and finished.get("project_id"):
+            pid = finished["project_id"]
+            next_todo = next(
+                (t for t in reversed(todos)
+                 if t.get("project_id") == pid and t.get("status") == "pending"),
+                None,
+            )
+            if next_todo:
+                spawn_worker(next_todo["id"])
     return {"ok": True}
 
 
