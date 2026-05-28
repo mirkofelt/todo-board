@@ -48,10 +48,12 @@ button:hover { background: #059669; }
 .btn-ghost:hover { border-color: #94a3b8; color: #e2e8f0; background: none; }
 @keyframes btn-spin { to { transform: rotate(360deg); } }
 .btn-spinner {
-  display: inline-block; width: 11px; height: 11px;
-  border: 1.5px solid #475569; border-top-color: #94a3b8;
-  border-radius: 50%; animation: btn-spin 0.7s linear infinite;
-  margin-right: 6px; vertical-align: middle;
+  animation: btn-spin 0.75s linear infinite;
+  transform-origin: center;
+  will-change: transform;
+  margin-right: 6px;
+  vertical-align: -2px;
+  flex-shrink: 0;
 }
 .btn-icon { background: none; border: none; color: #334155; font-size: 16px; padding: 3px 7px; cursor: pointer; }
 .btn-icon:hover { color: #ef4444; }
@@ -713,7 +715,7 @@ async function breakdownTodo() {
 
   const btn = document.getElementById("breakdown-btn");
   btn.disabled = true;
-  btn.innerHTML = '<span class="btn-spinner"></span>Breaking down…';
+  btn.innerHTML = '<svg class="btn-spinner" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="4.5" stroke="#475569" stroke-width="1.5"/><path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/></svg>Breaking down…';
 
   try {
     const r = await fetch("/api/breakdown", {
