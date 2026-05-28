@@ -140,6 +140,7 @@ def _invoke_claude(cmd: list, todo_id: int) -> tuple:
 
     output_lines: list = []
     final_result_text = None
+    result_subtype = None
     token_data: dict = {}
     session_id = None
 
@@ -166,6 +167,7 @@ def _invoke_claude(cmd: list, todo_id: int) -> tuple:
                             _api("/api/statusline", {"text": f"#{todo_id} → {status_text}"})
         elif etype == "result":
             final_result_text = event.get("result", "")
+            result_subtype = event.get("subtype", "")
             session_id = event.get("session_id")
             usage = event.get("usage", {})
             token_data = {
@@ -177,7 +179,23 @@ def _invoke_claude(cmd: list, todo_id: int) -> tuple:
 
     proc.wait()
     stderr_out = proc.stderr.read()
-    return proc.returncode, output_lines, final_result_text, token_data, session_id, stderr_out
+    return proc.returncode, output_lines, final_result_text, result_subtype, token_data, session_id, stderr_out
+
+
+_LIMIT_SUBTYPES = frozenset({"error_max_turns", "error_usage", "error_context_window"})
+_LIMIT_STDERR_PATTERNS = (
+    "ContextWindowExceededError",
+    "context_length_exceeded",
+    "max_tokens",
+    "too many tokens",
+)
+
+
+def _is_context_limit(subtype: str | None, stderr: str) -> bool:
+    if subtype in _LIMIT_SUBTYPES:
+        return True
+    stderr_lower = stderr.lower()
+    return any(pat.lower() in stderr_lower for pat in _LIMIT_STDERR_PATTERNS)
 
 
 def main() -> None:
@@ -231,17 +249,17 @@ def main() -> None:
 
     if prior_session:
         cmd = _build_resume_cmd(prior_session, task_prompt, model)
-        rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+        rc, output_lines, final_result_text, result_subtype, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
 
         if rc != 0:
             # Session expired or invalid — fall back to cold start
             sessions.pop(session_key, None)
             _save_sessions(sessions)
             cmd = _build_cold_cmd(task_prompt, system_prompt, model)
-            rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+            rc, output_lines, final_result_text, result_subtype, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
     else:
         cmd = _build_cold_cmd(task_prompt, system_prompt, model)
-        rc, output_lines, final_result_text, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
+        rc, output_lines, final_result_text, result_subtype, token_data, new_session_id, stderr_out = _invoke_claude(cmd, todo_id)
 
     duration_secs = int(time.time() - start_time)
 
@@ -259,7 +277,11 @@ def main() -> None:
         "\n".join(output_lines) + ("\n\nSTDERR:\n" + stderr_out if stderr_out else "")
     )
 
-    if output.startswith("FAILED:") or rc != 0:
+    hit_limit = _is_context_limit(result_subtype, stderr_out)
+
+    if hit_limit:
+        _api(f"/api/status/{todo_id}", {"status": "context_limit", "duration_secs": duration_secs, "tokens": token_data})
+    elif output.startswith("FAILED:") or rc != 0:
         reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {rc}"
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
