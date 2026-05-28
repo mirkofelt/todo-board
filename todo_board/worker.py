@@ -52,7 +52,7 @@ def main() -> None:
         print(f"Todo #{todo_id} not found", file=sys.stderr)
         sys.exit(1)
 
-    if todo.get("status") in ("in_progress", "done", "failed"):
+    if todo.get("status") in ("done", "failed"):
         print(f"Todo #{todo_id} status={todo['status']}, skipping", file=sys.stderr)
         sys.exit(0)
 

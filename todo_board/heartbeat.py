@@ -55,6 +55,7 @@ def main() -> None:
     pending = [t for t in todos if t.get("status") == "pending" and not t.get("done")]
     spawned_projects: set = set()
 
+    to_spawn = []
     for t in sorted(pending, key=lambda x: x.get("created", 0)):
         pid = t.get("project_id")
         is_retry = t["id"] in context_limit_ids
@@ -64,11 +65,19 @@ def main() -> None:
             continue
 
         if pid is None:
-            spawn_worker(t["id"])
+            to_spawn.append(t)
             continue
 
         if pid not in spawned_projects and not project_has_active_worker(pid, todos):
             spawned_projects.add(pid)
+            to_spawn.append(t)
+
+    if to_spawn:
+        for t in to_spawn:
+            t["status"] = "in_progress"
+            t["status_updated_at"] = int(time.time())
+        save_todos(todos)
+        for t in to_spawn:
             spawn_worker(t["id"])
 
     active = [t for t in non_done if t.get("status") not in ("context_limit", "done")]

@@ -83,6 +83,9 @@ async def set_status(todo_id: int, request: Request):
                 None,
             )
             if next_todo:
+                next_todo["status"] = "in_progress"
+                next_todo["status_updated_at"] = int(time.time())
+                save_todos(todos)
                 spawn_worker(next_todo["id"])
     return {"ok": True}
 
