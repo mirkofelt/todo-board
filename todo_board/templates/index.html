@@ -334,7 +334,7 @@ function renderTodos() {
   if (totalIn > 0 || totalOut > 0 || totalSecs > 0) {
     const tm = Math.floor(totalSecs / 60), ts2 = totalSecs % 60;
     const rtPart = totalSecs > 0 ? (tm > 0 ? `${tm}m ${ts2}s` : `${ts2}s`) : null;
-    const tokPart = (totalIn > 0 || totalOut > 0) ? `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)} [in]/[out]` : null;
+    const tokPart = (totalIn > 0 || totalOut > 0) ? `${fmtTokCount(totalIn)}/${fmtTokCount(totalOut)}` : null;
     statsEl.textContent = [tokPart, rtPart].filter(Boolean).join(" · ");
   } else {
     statsEl.textContent = "";
