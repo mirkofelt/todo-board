@@ -10,6 +10,7 @@ PROJECTS_FILE = DATA_DIR / "projects.json"
 RULES_FILE = DATA_DIR / "rules.txt"
 STATUSLINE_FILE = DATA_DIR / "statusline.json"
 STATS_FILE = DATA_DIR / "stats.json"
+COUNTER_FILE = DATA_DIR / "counter.json"
 
 PROJECTS_DIR = Path(os.environ.get("TODO_BOARD_PROJECTS_DIR", DATA_DIR.parent))
 

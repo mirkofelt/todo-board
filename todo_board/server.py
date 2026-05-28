@@ -11,11 +11,13 @@ from .config import DATA_DIR, PROJECTS_DIR, TODOS_FILE
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     accumulate_stats,
+    load_counter,
     load_projects,
     load_rules,
     load_stats,
     load_statusline,
     load_todos,
+    save_counter,
     save_projects,
     save_rules,
     save_statusline,
@@ -44,7 +46,8 @@ async def add_todo(request: Request):
     if not text:
         return JSONResponse({"ok": False}, status_code=400)
     todos = load_todos()
-    new_id = max((t["id"] for t in todos), default=0) + 1
+    new_id = max(max((t["id"] for t in todos), default=0), load_counter()) + 1
+    save_counter(new_id)
     project_id = body.get("project_id")
     active = project_has_active_worker(project_id, todos)
     will_spawn = not active

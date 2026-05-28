@@ -1,6 +1,7 @@
 import json
 
 from .config import (
+    COUNTER_FILE,
     DEFAULT_PROJECTS,
     DEFAULT_RULES,
     PROJECTS_DIR,
@@ -21,6 +22,16 @@ def load_todos() -> list:
 
 def save_todos(todos: list) -> None:
     TODOS_FILE.write_text(json.dumps(todos, ensure_ascii=False, indent=2))
+
+
+def load_counter() -> int:
+    if not COUNTER_FILE.exists():
+        return 0
+    return json.loads(COUNTER_FILE.read_text()).get("last_id", 0)
+
+
+def save_counter(last_id: int) -> None:
+    COUNTER_FILE.write_text(json.dumps({"last_id": last_id}))
 
 
 def load_projects() -> list:
