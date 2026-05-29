@@ -11,6 +11,11 @@ statusline.json
 projects.json
 rules.txt
 stats.json
+sessions.json
+news.json
+counter.json
+github_links.json
+github_seen_releases.json
 
 # Local config — contains machine-specific paths, not tracked
 plugins.json
