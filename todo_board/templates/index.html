@@ -3,16 +3,119 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Todo Queue</title>
+<title>Todo Board</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f172a'/><rect x='3' y='5' width='26' height='22' rx='3' fill='%231e293b'/><rect x='3' y='5' width='26' height='8' rx='3' fill='%2326334a'/><rect x='3' y='10' width='26' height='3' fill='%2326334a'/><circle cx='8' cy='9' r='1.5' fill='%23ef4444'/><circle cx='13' cy='9' r='1.5' fill='%23f59e0b'/><circle cx='18' cy='9' r='1.5' fill='%2310b981'/><polyline points='9,21 13,25 24,16' fill='none' stroke='%2310b981' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #0f172a; color: #e2e8f0;
-  min-height: 100vh; padding: 32px 16px;
+  min-height: 100vh;
 }
-.container { max-width: 680px; margin: 0 auto; }
+.layout {
+  display: flex; gap: 20px; align-items: flex-start;
+  max-width: 880px; margin: 0 auto; padding: 32px 16px;
+}
+.container { max-width: 680px; flex: 1; min-width: 0; }
+.sidebar {
+  width: 148px; flex-shrink: 0;
+  position: sticky; top: 74px;
+}
+.sidebar-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+  color: #334155; font-weight: 600; margin-bottom: 8px;
+}
+.sidebar-link {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: #475569;
+  padding: 5px 8px; border-radius: 6px; margin-bottom: 2px;
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .1s, color .1s;
+}
+.sidebar-link:hover { background: #1e293b; color: #94a3b8; }
+.sidebar-link svg { flex-shrink: 0; opacity: .5; }
+@media (max-width: 640px) { .sidebar { display: none; } }
+
+.plugin-item {
+  display: flex; align-items: center; gap: 5px;
+  margin-bottom: 2px;
+}
+.plugin-run-btn {
+  background: none; border: 1px solid #334155; color: #475569;
+  border-radius: 4px; padding: 1px 5px; font-size: 11px;
+  cursor: pointer; flex-shrink: 0; line-height: 1.4;
+  transition: border-color .1s, color .1s;
+}
+.plugin-run-btn:hover { border-color: #10b981; color: #10b981; background: none; }
+.plugin-run-btn:disabled { opacity: .4; cursor: not-allowed; }
+.plugin-name { font-size: 12px; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.plugin-meta { font-size: 10px; color: #334155; padding-left: 2px; margin-bottom: 8px; line-height: 1.4; }
+.plugin-meta.done { color: #334155; }
+.plugin-meta.failed { color: #7f1d1d; }
+.plugin-meta.running { color: #92400e; }
+.plugin-view-btn { background: none; border: none; color: #334155; font-size: 10px; padding: 0; cursor: pointer; text-decoration: underline; }
+.plugin-view-btn:hover { color: #94a3b8; }
+
+.plugin-modal-result {
+  background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+  padding: 12px 14px; font-size: 12px; font-family: monospace;
+  color: #94a3b8; white-space: pre-wrap; word-break: break-word;
+  line-height: 1.6; max-height: 400px; overflow-y: auto;
+  margin-top: 12px;
+}
+
+.top-nav {
+  background: #1e293b; border-bottom: 1px solid #263347;
+  display: flex; align-items: stretch; padding: 0 20px;
+  position: sticky; top: 0; z-index: 100;
+}
+.tab-btn {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: #475569; font-size: 13px; font-weight: 500;
+  padding: 11px 14px; cursor: pointer;
+  display: flex; align-items: center; gap: 7px;
+  transition: color .15s; white-space: nowrap;
+}
+.tab-btn:hover { color: #94a3b8; }
+.tab-btn.active { color: #10b981; border-bottom-color: #10b981; }
+.unread-badge {
+  background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+  border-radius: 10px; padding: 1px 6px; min-width: 18px; text-align: center;
+  line-height: 16px;
+}
+
+.news-container { max-width: 680px; margin: 0 auto; padding: 28px 16px; }
+.news-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+.news-toolbar-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: #475569; font-weight: 500;
+}
+.news-item {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: #1e293b; border: 1px solid #334155;
+  border-left: 3px solid #334155;
+  border-radius: 8px; padding: 11px 14px; margin-bottom: 8px;
+  transition: opacity .15s;
+}
+.news-item.read { opacity: .55; }
+.news-item.type-info { border-left-color: #10b981; }
+.news-item.type-warning { border-left-color: #f59e0b; background: #1c1a10; }
+.news-item.type-error { border-left-color: #ef4444; background: #1a0e0e; }
+.news-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; line-height: 1; font-weight: 700; }
+.news-item.type-info .news-icon { color: #34d399; }
+.news-item.type-warning .news-icon { color: #fbbf24; }
+.news-item.type-error .news-icon { color: #f87171; }
+.news-body { flex: 1; min-width: 0; }
+.news-message { font-size: 13px; line-height: 1.5; color: #ffffff; word-break: break-word; }
+.news-meta { font-size: 11px; color: #94a3b8; margin-top: 5px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.news-task-ref { color: #94a3b8; cursor: pointer; font-family: monospace; }
+.news-task-ref:hover { color: #e2e8f0; text-decoration: underline; }
+.news-empty { color: #94a3b8; font-size: 13px; padding: 8px 0; }
+
 h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .h1-stats { font-size: 11px; font-family: monospace; color: #334155; font-weight: 400; white-space: nowrap; }
 #last-activity {
@@ -49,6 +152,7 @@ button:hover { background: #059669; }
 @keyframes btn-spin { to { transform: rotate(360deg); } }
 .btn-spinner {
   animation: btn-spin 0.75s linear infinite;
+  transform-box: fill-box;
   transform-origin: center;
   will-change: transform;
   margin-right: 6px;
@@ -181,6 +285,16 @@ details[open] summary { margin-bottom: 14px; }
 
 .btn-edit { background: none; border: none; color: #475569; font-size: 15px; padding: 3px 6px; cursor: pointer; line-height: 1; }
 .btn-edit:hover { color: #10b981; }
+.drag-handle {
+  cursor: grab; color: #263347; padding: 2px 5px; flex-shrink: 0;
+  align-self: center; user-select: none; font-size: 14px; line-height: 1;
+  transition: color .1s;
+}
+.drag-handle:active { cursor: grabbing; }
+.todo-item:hover .drag-handle { color: #475569; }
+.todo-item.dragging { opacity: 0.35; }
+.drop-before { box-shadow: 0 -2px 0 #10b981 !important; }
+.drop-after { box-shadow: 0 2px 0 #10b981 !important; }
 .todo-item.editing { border-color: #10b981; background: #0d1f1a; }
 .todo-statusbar.editing { background: #10b981; opacity: .45; }
 .todo-edit-form { width: 100%; }
@@ -223,8 +337,27 @@ details[open] summary { margin-bottom: 14px; }
 </style>
 </head>
 <body>
+<nav class="top-nav">
+  <button class="tab-btn active" id="tab-btn-todos" onclick="switchTab('todos')">Todo Board</button>
+  <button class="tab-btn" id="tab-btn-news" onclick="switchTab('news')">
+    News Feed
+    <span class="unread-badge" id="unread-badge" style="display:none">0</span>
+  </button>
+</nav>
+<div id="tab-todos">
+<div class="layout">
+<aside class="sidebar" id="sidebar" style="display:none">
+  <div id="github-sidebar-section">
+    <div class="sidebar-label">GitHub</div>
+    <nav id="github-projects-nav"></nav>
+  </div>
+  <div id="plugins-sidebar-section" style="display:none;margin-top:16px">
+    <div class="sidebar-label">Plugins</div>
+    <div id="plugins-nav"></div>
+  </div>
+</aside>
 <div class="container">
-  <h1><span style="display:flex;align-items:center;gap:8px"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f172a"/><rect x="3" y="5" width="26" height="22" rx="3" fill="#1e293b"/><rect x="3" y="5" width="26" height="8" rx="3" fill="#26334a"/><rect x="3" y="10" width="26" height="3" fill="#26334a"/><circle cx="8" cy="9" r="1.5" fill="#ef4444"/><circle cx="13" cy="9" r="1.5" fill="#f59e0b"/><circle cx="18" cy="9" r="1.5" fill="#10b981"/><polyline points="9,21 13,25 24,16" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Todo Queue</span><span class="h1-stats" id="h1-stats"></span></h1>
+  <h1><span style="display:flex;align-items:center;gap:8px"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f172a"/><rect x="3" y="5" width="26" height="22" rx="3" fill="#1e293b"/><rect x="3" y="5" width="26" height="8" rx="3" fill="#26334a"/><rect x="3" y="10" width="26" height="3" fill="#26334a"/><circle cx="8" cy="9" r="1.5" fill="#ef4444"/><circle cx="13" cy="9" r="1.5" fill="#f59e0b"/><circle cx="18" cy="9" r="1.5" fill="#10b981"/><polyline points="9,21 13,25 24,16" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Todo Board</span><span class="h1-stats" id="h1-stats"></span></h1>
   <div id="last-activity" style="display:none"></div>
 
   <div class="add-form">
@@ -244,18 +377,18 @@ details[open] summary { margin-bottom: 14px; }
   </div>
 
   <div class="section" id="pending-section">
-    <div class="section-label">Pending</div>
+    <div class="section-label" id="pending-label">Pending</div>
     <div id="pending-list"></div>
   </div>
 
   <div class="section" id="inprogress-section">
-    <div class="section-label">In Progress</div>
+    <div class="section-label" id="inprogress-label">In Progress</div>
     <div id="inprogress-list"></div>
   </div>
 
   <div class="section" id="done-section">
     <div class="section-label" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <span>Done</span>
+      <span id="done-label">Done</span>
       <button class="btn-sm btn-ghost" id="clear-done-btn" onclick="clearAllDone()" style="text-transform:none;letter-spacing:0;font-size:11px">🗑️ Clear</button>
     </div>
     <div id="done-list"></div>
@@ -280,6 +413,33 @@ details[open] summary { margin-bottom: 14px; }
   </details>
 </div>
 
+</div><!-- /.layout -->
+</div><!-- /#tab-todos -->
+
+<div id="tab-news" style="display:none">
+  <div class="news-container">
+    <div class="news-toolbar">
+      <span class="news-toolbar-label">News Feed</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sm btn-ghost" id="mark-read-btn" onclick="markAllRead()">Mark all read</button>
+        <button class="btn-sm btn-ghost" id="clear-news-btn" onclick="clearNews()">🗑 Clear</button>
+      </div>
+    </div>
+    <div id="news-list"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="plugin-result-modal">
+  <div class="modal">
+    <div class="modal-title" id="plugin-result-title">Plugin Result</div>
+    <div class="modal-subtitle" id="plugin-result-meta"></div>
+    <pre class="plugin-modal-result" id="plugin-result-body"></pre>
+    <div class="modal-actions">
+      <button class="btn-ghost btn-sm" onclick="closePluginModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="breakdown-modal">
   <div class="modal">
     <div class="modal-title">Break down into subtasks</div>
@@ -295,8 +455,12 @@ details[open] summary { margin-bottom: 14px; }
 <script>
 let projects = [];
 let todos = [];
+let githubLinks = {};
+let newsItems = [];
+let plugins = {};
+let activeTab = "todos";
 let cumulativeStats = {total_input_tokens: 0, total_cache_creation_tokens: 0, total_cache_read_tokens: 0, total_output_tokens: 0, total_duration_secs: 0};
-const editingTodos = new Map(); // id -> current edit text in textarea
+const editingTodos = new Map();
 
 function captureEditState() {
   document.querySelectorAll('.todo-edit-textarea').forEach(ta => {
@@ -306,13 +470,19 @@ function captureEditState() {
 }
 
 async function loadAll() {
-  [projects, todos, cumulativeStats] = await Promise.all([
+  [projects, todos, cumulativeStats, githubLinks, newsItems, plugins] = await Promise.all([
     fetch("/api/projects").then(r => r.json()),
     fetch("/api/todos").then(r => r.json()),
     fetch("/api/stats").then(r => r.json()),
+    fetch("/api/github-links").then(r => r.json()),
+    fetch("/api/news").then(r => r.json()),
+    fetch("/api/plugins").then(r => r.json()),
   ]);
   renderDropdown();
+  renderSidebar();
   renderTodos();
+  updateUnreadBadge();
+  if (activeTab === "news") renderNews();
 }
 
 async function loadReq() {
@@ -327,6 +497,157 @@ function renderDropdown() {
     '<option value="__new__">+ New project…</option>';
   if (cur) sel.value = cur;
 }
+
+function renderSidebar() {
+  const sidebar = document.getElementById("sidebar");
+  const ghEntries = Object.entries(githubLinks).sort((a, b) => a[0].localeCompare(b[0]));
+  const pluginEntries = Object.entries(plugins);
+
+  if (!ghEntries.length && !pluginEntries.length) { sidebar.style.display = "none"; return; }
+
+  const ghSection = document.getElementById("github-sidebar-section");
+  const ghNav = document.getElementById("github-projects-nav");
+  if (ghEntries.length) {
+    const ghIcon = `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+    ghNav.innerHTML = ghEntries.map(([name, url]) =>
+      `<a class="sidebar-link" href="${url}" target="_blank" rel="noopener noreferrer">${ghIcon}${esc(name)}</a>`
+    ).join("");
+    ghSection.style.display = "";
+  } else {
+    ghSection.style.display = "none";
+  }
+
+  const pluginsSection = document.getElementById("plugins-sidebar-section");
+  const pluginsNav = document.getElementById("plugins-nav");
+  if (pluginEntries.length) {
+    const spinnerSvg = `<svg class="btn-spinner" width="10" height="10" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#475569" stroke-width="1.5"/><path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    pluginsNav.innerHTML = pluginEntries.map(([key, p]) => {
+      const isRunning = p.status === "running";
+      const btnContent = isRunning ? spinnerSvg : "▶";
+      const lastRun = p.last_run_at ? relTime(p.last_run_at) : null;
+      const statusCls = isRunning ? "running" : (p.status === "failed" ? "failed" : "done");
+      let metaParts = [];
+      if (isRunning) metaParts.push("running…");
+      else if (p.status === "done" && lastRun) metaParts.push(lastRun);
+      else if (p.status === "failed") metaParts.push("failed");
+      const viewLink = (!isRunning && p.result)
+        ? ` <button class="plugin-view-btn" onclick="showPluginResult('${key}')">view</button>`
+        : "";
+      return `<div class="plugin-item">
+        <button class="plugin-run-btn" onclick="runPlugin('${key}')" ${isRunning ? "disabled" : ""} title="${esc(p.description || p.name)}">${btnContent}</button>
+        <span class="plugin-name">${esc(p.name)}</span>
+      </div>
+      <div class="plugin-meta ${statusCls}">${metaParts.join(" · ")}${viewLink}</div>`;
+    }).join("");
+    pluginsSection.style.display = "";
+  } else {
+    pluginsSection.style.display = "none";
+  }
+
+  sidebar.style.display = "";
+}
+
+// ── Tab switching ────────────────────────────────────────────────────────────
+
+function switchTab(tab) {
+  const prev = activeTab;
+  activeTab = tab;
+  document.getElementById("tab-todos").style.display = tab === "todos" ? "" : "none";
+  document.getElementById("tab-news").style.display = tab === "news" ? "" : "none";
+  document.getElementById("tab-btn-todos").classList.toggle("active", tab === "todos");
+  document.getElementById("tab-btn-news").classList.toggle("active", tab === "news");
+  if (tab === "news") {
+    renderNews();
+  }
+  if (prev === "news" && tab !== "news") {
+    markAllRead();
+  }
+}
+
+// ── News Feed ────────────────────────────────────────────────────────────────
+
+function updateUnreadBadge() {
+  const count = newsItems.filter(n => !n.read).length;
+  const badge = document.getElementById("unread-badge");
+  badge.textContent = count > 99 ? "99+" : String(count);
+  badge.style.display = count > 0 ? "" : "none";
+}
+
+function renderNews() {
+  const list = document.getElementById("news-list");
+  if (!newsItems.length) {
+    list.innerHTML = `<div class="news-empty">No news yet. Task completions and errors will appear here.</div>`;
+    return;
+  }
+  const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+  const icons = { info: "ℹ", warning: "⚠", error: "✗" };
+  list.innerHTML = newsItems.map(n => {
+    const icon = icons[n.type] || "ℹ";
+    const readCls = n.read ? " read" : "";
+    let meta = `<span>${relTime(n.created)}</span>`;
+    if (n.todo_id) {
+      meta += `<span class="news-task-ref" onclick="switchTab('todos')" title="Go to Todo Board">#${n.todo_id}</span>`;
+    }
+    if (n.project_id && projMap[n.project_id]) {
+      meta += `<span style="color:#94a3b8">${esc(projMap[n.project_id])}</span>`;
+    }
+    if (n.url) {
+      meta += `<a class="news-task-ref" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">↗ open</a>`;
+    }
+    return `<div class="news-item type-${n.type}${readCls}">
+      <span class="news-icon">${icon}</span>
+      <div class="news-body">
+        <div class="news-message">${esc(n.message)}</div>
+        <div class="news-meta">${meta}</div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function markAllRead() {
+  if (!newsItems.some(n => !n.read)) return;
+  await fetch("/api/news/mark-read", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({}),
+  });
+  newsItems.forEach(n => n.read = true);
+  updateUnreadBadge();
+  if (activeTab === "news") renderNews();
+}
+
+async function clearNews() {
+  await fetch("/api/news/clear", { method: "POST" });
+  newsItems = [];
+  updateUnreadBadge();
+  renderNews();
+}
+
+// ── Plugins ──────────────────────────────────────────────────────────────────
+
+async function runPlugin(key) {
+  const r = await fetch(`/api/plugins/${key}/run`, { method: "POST" });
+  if (!r.ok) return;
+  plugins = await fetch("/api/plugins").then(r => r.json());
+  renderSidebar();
+}
+
+function showPluginResult(key) {
+  const p = plugins[key];
+  if (!p || !p.result) return;
+  document.getElementById("plugin-result-title").textContent = p.name;
+  const lastRun = p.last_run_at ? relTime(p.last_run_at) : "";
+  document.getElementById("plugin-result-meta").textContent = lastRun ? `Last run: ${lastRun}` : "";
+  document.getElementById("plugin-result-body").textContent = p.result;
+  document.getElementById("plugin-result-modal").classList.add("active");
+}
+
+function closePluginModal() {
+  document.getElementById("plugin-result-modal").classList.remove("active");
+}
+
+document.getElementById("plugin-result-modal").addEventListener("click", function(e) {
+  if (e.target === this) closePluginModal();
+});
 
 function buildChainMap(todos) {
   const byId = Object.fromEntries(todos.map(t => [t.id, t]));
@@ -358,15 +679,18 @@ function renderTodos() {
   });
   const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
   const chainMap = buildChainMap(todos);
-  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled");
+  // Reverse pending so "next to execute" (oldest = last in array) is at top
+  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled").reverse();
   const inProgress = todos.filter(t => t.status === "in_progress");
   const done = todos.filter(t => t.done || t.status === "canceled");
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
+  document.getElementById("pending-label").textContent = pending.length ? `Pending (${pending.length})` : "Pending";
   document.getElementById("pending-list").innerHTML =
     pending.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
   document.getElementById("inprogress-section").style.display = inProgress.length ? "" : "none";
+  document.getElementById("inprogress-label").textContent = inProgress.length ? `In Progress (${inProgress.length})` : "In Progress";
   document.getElementById("inprogress-list").innerHTML =
     inProgress.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
@@ -374,6 +698,7 @@ function renderTodos() {
   const olderDone = done.slice(3);
 
   document.getElementById("done-section").style.display = done.length ? "" : "none";
+  document.getElementById("done-label").textContent = done.length ? `Done (${done.length})` : "Done";
   document.getElementById("done-list").innerHTML =
     recentDone.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
 
@@ -442,7 +767,8 @@ function progressCircleHtml(t) {
     const delay = (-Math.min(elapsed, 299)).toFixed(1);
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="animation:todo-circle-fill 300s linear forwards;animation-delay:${delay}s"/></svg>`;
   }
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#334155" stroke-width="2"/></svg>`;
+  // pending — hourglass
+  return `<svg width="${size}" height="${size}" viewBox="0 0 22 22" class="todo-circle" aria-hidden="true"><g transform="translate(11,11)"><path d="M-5,-8 L5,-8 L5,-5 L0,0 L5,5 L5,8 L-5,8 L-5,5 L0,0 L-5,-5 Z" fill="none" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/><path d="M-5,8 L5,8 L5,5 L0,0 L-5,5 Z" fill="#334155"/><line x1="-5" y1="-8" x2="5" y2="-8" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/><line x1="-5" y1="8" x2="5" y2="8" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/></g></svg>`;
 }
 
 function todoHtml(t, projMap, chainMap) {
@@ -541,10 +867,14 @@ function todoHtml(t, projMap, chainMap) {
   const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
   const deleteBtn = !inProgress ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
-  return `<div class="todo-item ${cls}">
+  const isPending = t.status === "pending";
+  const draggableAttr = isPending ? `draggable="true" data-todo-id="${t.id}"` : `data-todo-id="${t.id}"`;
+  const dragHandle = isPending ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : "";
+
+  return `<div class="todo-item ${cls}" ${draggableAttr}>
     <div class="todo-statusbar ${cls || 'pending'}"></div>
     <div class="todo-row">
-      ${progressCircleHtml(t)}
+      ${dragHandle}${progressCircleHtml(t)}
       <div class="todo-body">
         <div class="todo-text">${esc(t.text)}</div>
         ${note}
@@ -727,7 +1057,6 @@ async function breakdownTodo() {
       alert("Breakdown failed:\n" + (data.error || "unknown error"));
       return;
     }
-    ta.value = "";
     showBreakdownModal(data.tasks);
   } catch (e) {
     alert("Breakdown error: " + e.message);
@@ -775,6 +1104,7 @@ async function approveBreakdown() {
     btn.textContent = `Adding ${i + 1} / ${texts.length}…`;
   }
 
+  document.getElementById("new-todo").value = "";
   closeBreakdownModal();
   btn.textContent = "Approve All";
   btn.disabled = false;
@@ -792,6 +1122,73 @@ document.addEventListener("keydown", e => {
     closeBreakdownModal();
   }
 });
+
+// ── Drag & drop reordering ────────────────────────────────────────────────────
+
+let _dragSrcId = null;
+
+function clearDragIndicators() {
+  document.querySelectorAll(".drop-before, .drop-after").forEach(el => {
+    el.classList.remove("drop-before", "drop-after");
+  });
+}
+
+function initDragDrop() {
+  const list = document.getElementById("pending-list");
+
+  list.addEventListener("dragstart", e => {
+    const item = e.target.closest("[draggable][data-todo-id]");
+    if (!item) { e.preventDefault(); return; }
+    _dragSrcId = parseInt(item.dataset.todoId);
+    item.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(_dragSrcId));
+  });
+
+  list.addEventListener("dragover", e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const item = e.target.closest("[draggable][data-todo-id]");
+    clearDragIndicators();
+    if (!item || parseInt(item.dataset.todoId) === _dragSrcId) return;
+    const rect = item.getBoundingClientRect();
+    item.classList.add(e.clientY > rect.top + rect.height / 2 ? "drop-after" : "drop-before");
+  });
+
+  list.addEventListener("drop", async e => {
+    e.preventDefault();
+    const targetItem = e.target.closest("[draggable][data-todo-id]");
+    const insertAfter = targetItem
+      ? e.clientY > targetItem.getBoundingClientRect().top + targetItem.getBoundingClientRect().height / 2
+      : false;
+    clearDragIndicators();
+    list.querySelectorAll(".dragging").forEach(el => el.classList.remove("dragging"));
+    if (!targetItem || !_dragSrcId) { _dragSrcId = null; return; }
+    const targetId = parseInt(targetItem.dataset.todoId);
+    if (targetId === _dragSrcId) { _dragSrcId = null; return; }
+
+    const items = Array.from(list.querySelectorAll("[draggable][data-todo-id]"));
+    let ids = items.map(el => parseInt(el.dataset.todoId));
+    const srcIdx = ids.indexOf(_dragSrcId);
+    ids.splice(srcIdx, 1);
+    const tgtIdx = ids.indexOf(targetId);
+    ids.splice(insertAfter ? tgtIdx + 1 : tgtIdx, 0, _dragSrcId);
+    _dragSrcId = null;
+
+    await fetch("/api/reorder", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ids}),
+    });
+    todos = await fetch("/api/todos").then(r => r.json());
+    renderTodos();
+  });
+
+  list.addEventListener("dragend", () => {
+    clearDragIndicators();
+    list.querySelectorAll(".dragging").forEach(el => el.classList.remove("dragging"));
+    _dragSrcId = null;
+  });
+}
 
 document.getElementById("save-req-btn").addEventListener("click", async () => {
   await fetch("/api/requirements", {
@@ -863,25 +1260,67 @@ async function checkVersion() {
 }
 
 let lastTodosMtime = null;
+let lastNewsMtime = null;
+let lastPluginStatesMtime = null;
 async function pollTodos() {
   const data = await fetch("/api/state").then(r => r.json()).catch(() => null);
   if (!data) return;
-  if (lastTodosMtime === data.mtime) return;
-  lastTodosMtime = data.mtime;
-  captureEditState();
-  [projects, todos, cumulativeStats] = await Promise.all([
-    fetch("/api/projects").then(r => r.json()),
-    fetch("/api/todos").then(r => r.json()),
-    fetch("/api/stats").then(r => r.json()),
-  ]);
-  renderDropdown();
-  renderTodos();
+
+  const todosChanged = lastTodosMtime !== data.mtime;
+  const newsChanged = lastNewsMtime !== data.news_mtime;
+  const pluginsChanged = lastPluginStatesMtime !== data.plugin_states_mtime;
+
+  if (!todosChanged && !newsChanged && !pluginsChanged) return;
+
+  const fetches = [];
+  if (todosChanged) {
+    lastTodosMtime = data.mtime;
+    captureEditState();
+    fetches.push(
+      fetch("/api/projects").then(r => r.json()),
+      fetch("/api/todos").then(r => r.json()),
+      fetch("/api/stats").then(r => r.json()),
+      fetch("/api/github-links").then(r => r.json()),
+    );
+  }
+  if (newsChanged) {
+    lastNewsMtime = data.news_mtime;
+    fetches.push(fetch("/api/news").then(r => r.json()));
+  }
+  if (pluginsChanged) {
+    lastPluginStatesMtime = data.plugin_states_mtime;
+    fetches.push(fetch("/api/plugins").then(r => r.json()));
+  }
+
+  const results = await Promise.all(fetches);
+  let idx = 0;
+  if (todosChanged) {
+    [projects, todos, cumulativeStats, githubLinks] = results.slice(0, 4);
+    idx = 4;
+    renderDropdown();
+    renderSidebar();
+    renderTodos();
+  }
+  if (newsChanged) {
+    newsItems = results[idx++];
+    updateUnreadBadge();
+    if (activeTab === "news") renderNews();
+  }
+  if (pluginsChanged) {
+    plugins = results[idx];
+    renderSidebar();
+  }
 }
 
 async function init() {
   await loadAll();
   const stateData = await fetch("/api/state").then(r => r.json()).catch(() => null);
-  if (stateData) lastTodosMtime = stateData.mtime;
+  if (stateData) {
+    lastTodosMtime = stateData.mtime;
+    lastNewsMtime = stateData.news_mtime;
+    lastPluginStatesMtime = stateData.plugin_states_mtime;
+  }
+  initDragDrop();
 }
 
 init();

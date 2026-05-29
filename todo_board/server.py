@@ -3,22 +3,31 @@ import os
 import signal
 import subprocess
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import DATA_DIR, MAX_RETRIES, PROJECTS_DIR, TODOS_FILE
+from .config import DATA_DIR, MAX_RETRIES, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
+from .github_poller import poll_github_releases, run_release_poller
+from .plugin_runner import is_running, run_plugin
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     accumulate_stats,
     load_counter,
+    load_github_links,
+    load_news,
+    load_plugin_states,
+    load_plugins,
     load_projects,
     load_rules,
     load_stats,
     load_statusline,
     load_todos,
     save_counter,
+    save_github_links,
+    save_news,
     save_projects,
     save_rules,
     save_statusline,
@@ -27,7 +36,19 @@ from .storage import (
 
 _TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(run_release_poller())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -311,6 +332,26 @@ async def lock_todo(todo_id: int, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/reorder")
+async def reorder_todos(request: Request):
+    body = await request.json()
+    ids = [int(i) for i in (body.get("ids") or [])]
+    if not ids:
+        return {"ok": True}
+    todos = load_todos()
+    id_set = set(ids)
+    id_to_todo = {t["id"]: t for t in todos}
+    # Positions (ascending) of todos being reordered in current array
+    positions = sorted(i for i, t in enumerate(todos) if t["id"] in id_set)
+    # ids[0] = runs first = needs highest array index (reversed() picks last element first)
+    result = list(todos)
+    for pos, todo_id in zip(reversed(positions), ids):
+        if todo_id in id_to_todo:
+            result[pos] = id_to_todo[todo_id]
+    save_todos(result)
+    return {"ok": True}
+
+
 @app.post("/api/edit/{todo_id}")
 async def edit_todo(todo_id: int, request: Request):
     body = await request.json()
@@ -382,7 +423,15 @@ def get_stats():
 @app.get("/api/state")
 def get_state():
     mtime = TODOS_FILE.stat().st_mtime if TODOS_FILE.exists() else 0
-    return JSONResponse({"mtime": mtime})
+    news_mtime = NEWS_FILE.stat().st_mtime if NEWS_FILE.exists() else 0
+    news_unread = sum(1 for n in load_news() if not n.get("read"))
+    plugin_states_mtime = PLUGIN_STATES_FILE.stat().st_mtime if PLUGIN_STATES_FILE.exists() else 0
+    return JSONResponse({
+        "mtime": mtime,
+        "news_mtime": news_mtime,
+        "news_unread": news_unread,
+        "plugin_states_mtime": plugin_states_mtime,
+    })
 
 
 @app.get("/api/version")
@@ -392,6 +441,104 @@ def get_version():
         _TEMPLATE.stat().st_mtime,
     )
     return JSONResponse({"version": mtime})
+
+
+@app.get("/api/news")
+def get_news():
+    return JSONResponse(load_news())
+
+
+@app.post("/api/news")
+async def create_news(request: Request):
+    body = await request.json()
+    msg_type = body.get("type", "info")
+    if msg_type not in ("info", "warning", "error"):
+        msg_type = "info"
+    message = (body.get("message") or "").strip()[:500]
+    if not message:
+        return JSONResponse({"ok": False, "error": "Message required"}, status_code=400)
+    news = load_news()
+    new_id = max((n["id"] for n in news), default=0) + 1
+    entry = {
+        "id": new_id,
+        "type": msg_type,
+        "message": message,
+        "todo_id": body.get("todo_id"),
+        "project_id": body.get("project_id"),
+        "created": int(time.time()),
+        "read": False,
+    }
+    news.insert(0, entry)
+    # Keep last 200 news items
+    save_news(news[:200])
+    return {"ok": True, "id": new_id}
+
+
+@app.post("/api/news/mark-read")
+async def mark_news_read(request: Request):
+    body = await request.json()
+    ids = body.get("ids")  # None = mark all read
+    news = load_news()
+    for n in news:
+        if ids is None or n["id"] in ids:
+            n["read"] = True
+    save_news(news)
+    return {"ok": True}
+
+
+@app.post("/api/news/clear")
+def clear_news():
+    save_news([])
+    return {"ok": True}
+
+
+@app.post("/api/poll-releases")
+async def trigger_release_poll():
+    count = await poll_github_releases()
+    return {"ok": True, "new_releases": count}
+
+
+@app.get("/api/github-links")
+def get_github_links():
+    return JSONResponse(load_github_links())
+
+
+@app.post("/api/github-links")
+async def set_github_links(request: Request):
+    body = await request.json()
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Expected object"}, status_code=400)
+    save_github_links(body)
+    return {"ok": True}
+
+
+@app.get("/api/plugins")
+def get_plugins():
+    definitions = load_plugins()
+    states = load_plugin_states()
+    result = {}
+    for key, plugin in definitions.items():
+        state = states.get(key, {})
+        result[key] = {
+            "name": plugin.get("name", key),
+            "description": plugin.get("description", ""),
+            "status": "running" if is_running(key) else state.get("status", "idle"),
+            "last_run_at": state.get("last_run_at"),
+            "result": state.get("result", ""),
+        }
+    return JSONResponse(result)
+
+
+@app.post("/api/plugins/{name}/run")
+async def trigger_plugin(name: str):
+    definitions = load_plugins()
+    plugin = definitions.get(name)
+    if not plugin:
+        return JSONResponse({"ok": False, "error": "Plugin not found"}, status_code=404)
+    if is_running(name):
+        return JSONResponse({"ok": False, "error": "Already running"}, status_code=409)
+    asyncio.create_task(run_plugin(name, plugin))
+    return {"ok": True}
 
 
 @app.get("/api/requirements")

@@ -12,6 +12,10 @@ projects.json
 rules.txt
 stats.json
 
+# Local config — contains machine-specific paths, not tracked
+plugins.json
+plugin_states.json
+
 # PID files
 worker_*.pid
 

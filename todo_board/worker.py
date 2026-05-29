@@ -293,12 +293,34 @@ def main() -> None:
 
     if hit_limit:
         _api(f"/api/status/{todo_id}", {"status": "context_limit", "duration_secs": duration_secs, "tokens": token_data})
+        _api("/api/news", {
+            "type": "warning",
+            "message": f"Task #{todo_id} interrupted — context limit reached",
+            "todo_id": todo_id,
+            "project_id": todo.get("project_id"),
+        })
     elif output.startswith("FAILED:") or rc != 0:
         reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {rc}"
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
+        _api("/api/news", {
+            "type": "error",
+            "message": f"Task #{todo_id} failed: {reason[:200]}",
+            "todo_id": todo_id,
+            "project_id": todo.get("project_id"),
+        })
     else:
         _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]})
+        trimmed = output.strip()
+        # Only post news if the output is substantive (not just a generic completion message)
+        if len(trimmed) > 60:
+            snippet = " ".join(trimmed.split())[:180]
+            _api("/api/news", {
+                "type": "info",
+                "message": f"Task #{todo_id}: {snippet}",
+                "todo_id": todo_id,
+                "project_id": todo.get("project_id"),
+            })
 
     _api("/api/statusline", {"text": ""})
     pid_file.unlink(missing_ok=True)

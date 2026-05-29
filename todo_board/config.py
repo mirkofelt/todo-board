@@ -15,6 +15,10 @@ COUNTER_FILE = DATA_DIR / "counter.json"
 PROJECTS_DIR = Path(os.environ.get("TODO_BOARD_PROJECTS_DIR", DATA_DIR.parent))
 
 SESSIONS_FILE = DATA_DIR / "sessions.json"
+GITHUB_LINKS_FILE = DATA_DIR / "github_links.json"
+NEWS_FILE = DATA_DIR / "news.json"
+PLUGINS_FILE = DATA_DIR / "plugins.json"
+PLUGIN_STATES_FILE = DATA_DIR / "plugin_states.json"
 
 CONTEXT_LIMIT_THRESHOLD = 25 * 60  # seconds
 

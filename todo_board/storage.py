@@ -4,6 +4,10 @@ from .config import (
     COUNTER_FILE,
     DEFAULT_PROJECTS,
     DEFAULT_RULES,
+    GITHUB_LINKS_FILE,
+    NEWS_FILE,
+    PLUGIN_STATES_FILE,
+    PLUGINS_FILE,
     PROJECTS_DIR,
     PROJECTS_FILE,
     RULES_FILE,
@@ -115,6 +119,46 @@ def load_stats() -> dict:
 
 def save_stats(data: dict) -> None:
     STATS_FILE.write_text(json.dumps(data, ensure_ascii=False))
+
+
+def load_news() -> list:
+    if not NEWS_FILE.exists():
+        return []
+    return json.loads(NEWS_FILE.read_text())
+
+
+def save_news(news: list) -> None:
+    NEWS_FILE.write_text(json.dumps(news, ensure_ascii=False, indent=2))
+
+
+def load_github_links() -> dict:
+    if not GITHUB_LINKS_FILE.exists():
+        return {}
+    return json.loads(GITHUB_LINKS_FILE.read_text())
+
+
+def save_github_links(links: dict) -> None:
+    GITHUB_LINKS_FILE.write_text(json.dumps(links, ensure_ascii=False, indent=2))
+
+
+def load_plugins() -> dict:
+    if not PLUGINS_FILE.exists():
+        return {}
+    return json.loads(PLUGINS_FILE.read_text())
+
+
+def save_plugins(plugins: dict) -> None:
+    PLUGINS_FILE.write_text(json.dumps(plugins, ensure_ascii=False, indent=2))
+
+
+def load_plugin_states() -> dict:
+    if not PLUGIN_STATES_FILE.exists():
+        return {}
+    return json.loads(PLUGIN_STATES_FILE.read_text())
+
+
+def save_plugin_states(states: dict) -> None:
+    PLUGIN_STATES_FILE.write_text(json.dumps(states, ensure_ascii=False, indent=2))
 
 
 def accumulate_stats(todos: list) -> None:
