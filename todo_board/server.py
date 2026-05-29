@@ -139,11 +139,16 @@ def _fetch_crypto_data(symbol: str = "BTC-USD") -> dict:
             "error": None,
         }
     except Exception as exc:
-        state = {
-            "symbol": symbol,
-            "last_updated": int(time.time()),
-            "error": str(exc),
-        }
+        # Preserve last good state — overwrite only the error field so stale data remains visible
+        prev = load_crypto_state()
+        if prev.get("price"):
+            state = {**prev, "error": str(exc), "last_error_ts": int(time.time())}
+        else:
+            state = {
+                "symbol": symbol,
+                "last_updated": int(time.time()),
+                "error": str(exc),
+            }
 
     save_crypto_state(state)
     return state
@@ -170,33 +175,47 @@ def _spawn_next_pending(project_id, todos: list) -> None:
 
 
 def _recover_orphaned_todos() -> None:
-    """On startup, reset in_progress todos whose worker process is gone to pending,
-    then kick off one worker per project that has pending work."""
+    """On startup, reset all in_progress/working todos to pending and clean up stale PID files.
+
+    No workers can be running at startup regardless of how the previous server run ended
+    (graceful shutdown, SIGKILL, host reboot). PID-based liveness checks are unreliable
+    after a reboot because PIDs get reused, so we reset unconditionally.
+    """
     todos = load_todos()
     changed = False
     for t in todos:
         if t.get("status") not in ("in_progress", "working"):
             continue
-        pid_file = DATA_DIR / f"worker_{t['id']}.pid"
-        alive = False
-        if pid_file.exists():
-            try:
-                os.kill(int(pid_file.read_text().strip()), 0)
-                alive = True
-            except (ValueError, ProcessLookupError, OSError):
-                pid_file.unlink(missing_ok=True)
-        if not alive:
-            t["status"] = "pending"
-            t["status_updated_at"] = int(time.time())
-            t["progress"] = None
-            changed = True
+        (DATA_DIR / f"worker_{t['id']}.pid").unlink(missing_ok=True)
+        t["status"] = "pending"
+        t["status_updated_at"] = int(time.time())
+        t["progress"] = None
+        changed = True
     if changed:
         save_todos(todos)
 
-    # Remove news entries that reference todo IDs which no longer exist.
+    # Remove news entries that reference todo IDs which no longer exist,
+    # and stale warning entries for todos that have since reached a terminal state.
     known_ids = {t["id"] for t in todos}
+    todos_by_id = {t["id"]: t for t in todos}
+    _terminal = frozenset({"done", "failed", "canceled"})
+
+    def _keep_news(n):
+        tid = n.get("todo_id")
+        if tid is not None and tid not in known_ids:
+            return False  # todo deleted
+        if n.get("type") == "warning" and tid is not None:
+            todo = todos_by_id.get(tid)
+            if todo and todo.get("status") in _terminal:
+                return False  # warning for a finished task
+            if todo and "question" in n.get("message", "").lower():
+                qs = todo.get("questions") or []
+                if not any(q.get("answer") is None for q in qs):
+                    return False  # no unanswered questions left
+        return True
+
     news = load_news()
-    clean_news = [n for n in news if n.get("todo_id") is None or n["todo_id"] in known_ids]
+    clean_news = [n for n in news if _keep_news(n)]
     if len(clean_news) < len(news):
         save_news(clean_news)
 
@@ -276,7 +295,8 @@ def _prepare_for_restart() -> None:
             pid_file.unlink(missing_ok=True)
         t["status"] = "pending"
         t["status_updated_at"] = int(time.time())
-        t["progress"] = None
+        # Keep progress text — shows where the task was interrupted; will be
+        # overwritten once the worker resumes and emits its first STATUS line.
         changed = True
     if changed:
         save_todos(todos)

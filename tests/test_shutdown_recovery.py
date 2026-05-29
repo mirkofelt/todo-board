@@ -50,7 +50,6 @@ def test_in_progress_reset_to_pending(data_dir, monkeypatch):
         monkeypatch,
     )
     assert todos[0]["status"] == "pending"
-    assert todos[0]["progress"] is None
 
 
 def test_in_progress_with_pid_file_sigtermed(data_dir, monkeypatch):
@@ -122,13 +121,15 @@ def test_multiple_in_progress_all_reset(data_dir, monkeypatch):
     assert all(t["status"] == "pending" for t in todos)
 
 
-def test_progress_cleared(data_dir, monkeypatch):
+def test_progress_preserved_on_shutdown(data_dir, monkeypatch):
+    # Progress text is kept so the UI shows where the task was interrupted.
+    # The worker will overwrite it once it resumes and emits a new STATUS line.
     todos, _ = _run_shutdown(
         data_dir,
         [_todo(1, "Task", progress="Working on step 3...")],
         monkeypatch,
     )
-    assert todos[0]["progress"] is None
+    assert todos[0]["progress"] == "Working on step 3..."
 
 
 def test_no_file_write_when_nothing_in_progress(data_dir, monkeypatch):

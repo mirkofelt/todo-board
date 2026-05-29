@@ -413,3 +413,39 @@ def test_worker_main_marks_failed_on_nonzero_exit(monkeypatch, tmp_path):
     assert len(failed_calls) == 1
 
 
+
+
+def test_worker_saves_session_on_sigterm(monkeypatch, tmp_path):
+    """When SIGTERM is received mid-run, worker saves session_id and exits without marking todo done."""
+    monkeypatch.setenv("TODO_BOARD_DATA_DIR", str(tmp_path))
+    import todo_board.worker as worker
+    importlib.reload(worker)
+
+    (tmp_path / "todos.json").write_text(json.dumps([_make_todo(id=1)]))
+    monkeypatch.setattr(sys, "argv", ["worker.py", "1"])
+
+    # Simulate: claude outputs a result event (session_id captured), but SIGTERM was set
+    stdout = _result_event("partial work done", session_id="sess-interrupted-123")
+
+    worker._sigterm_received = True
+    api_calls = []
+
+    def fake_api(path, data):
+        api_calls.append((path, data))
+        return {}
+
+    with mock.patch("subprocess.Popen", side_effect=lambda *a, **k: _mock_popen(stdout)):
+        with mock.patch("todo_board.worker._api", side_effect=fake_api):
+            worker.main()
+
+    worker._sigterm_received = False  # reset for other tests
+
+    # Session ID must be persisted for resume
+    sessions = json.loads((tmp_path / "sessions.json").read_text())
+    assert sessions.get("1") == "sess-interrupted-123"
+
+    # Todo must NOT be marked done or failed
+    done_or_failed = [c for c in api_calls
+                      if c[0].startswith("/api/status/") and
+                      c[1].get("status") in ("done", "failed")]
+    assert done_or_failed == []

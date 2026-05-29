@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -16,6 +17,16 @@ import urllib.request
 import zoneinfo
 from datetime import datetime, timedelta
 from pathlib import Path
+
+_sigterm_received = False
+
+
+def _handle_sigterm(signum, frame):
+    global _sigterm_received
+    _sigterm_received = True
+
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
 
 _DATA_DIR = Path(os.environ.get("TODO_BOARD_DATA_DIR", Path(__file__).resolve().parent.parent))
 TODOS_FILE = _DATA_DIR / "todos.json"
@@ -155,8 +166,26 @@ def _parse_file_outputs(output_lines: list) -> list:
     return paths
 
 
+# Extensions considered deliverable results — code/config files are excluded.
+_DELIVERABLE_EXTENSIONS = frozenset({
+    # Documents & presentations
+    ".pdf", ".pptx", ".ppt", ".odp", ".docx", ".doc", ".odt", ".rtf",
+    # Spreadsheets & data exports
+    ".xlsx", ".xls", ".ods", ".csv", ".tsv",
+    # Images & diagrams
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".tiff",
+    # Archives
+    ".zip", ".tar", ".gz", ".bz2", ".7z",
+    # Media
+    ".mp4", ".mp3", ".wav", ".ogg",
+})
+
+
 def _collect_result_files(todo_id: int, file_paths: list) -> list:
-    """Copy announced files to the results directory and return metadata list."""
+    """Copy announced deliverable files to the results directory and return metadata list.
+
+    Code and config files are silently skipped — only recognised result types are delivered.
+    """
     result_files = []
     if not file_paths:
         return result_files
@@ -164,6 +193,9 @@ def _collect_result_files(todo_id: int, file_paths: list) -> list:
     dest_dir.mkdir(parents=True, exist_ok=True)
     for fp in file_paths:
         src = Path(fp)
+        if src.suffix.lower() not in _DELIVERABLE_EXTENSIONS:
+            print(f"FILE: skipping non-deliverable file type: {fp}", file=sys.stderr)
+            continue
         if not src.is_file():
             print(f"FILE: path not found, skipping: {fp}", file=sys.stderr)
             continue
@@ -437,9 +469,17 @@ def main() -> None:
 
     duration_secs = int(time.time() - start_time)
 
+    # Save session_id regardless — needed for both normal completion and SIGTERM resume.
     if new_session_id:
         sessions[session_key] = new_session_id
         _save_sessions(sessions)
+
+    if _sigterm_received:
+        # Server is shutting down. Session ID is saved above; the server will reset
+        # the todo to pending. On next start the worker will resume the Claude session.
+        _api("/api/statusline", {"text": ""})
+        pid_file.unlink(missing_ok=True)
+        return
 
     if final_result_text is not None:
         output = final_result_text.strip()
