@@ -225,7 +225,10 @@ def delete_all_done():
     todos = load_todos()
     to_delete = [t for t in todos if t.get("done") or t.get("status") == "canceled"]
     accumulate_stats(to_delete)
+    deleted_ids = {t["id"] for t in to_delete}
     save_todos([t for t in todos if not t.get("done") and t.get("status") != "canceled"])
+    if deleted_ids:
+        save_news([n for n in load_news() if n.get("todo_id") not in deleted_ids])
     return {"ok": True}
 
 
@@ -238,6 +241,7 @@ def delete_todo(todo_id: int):
     if todo and (todo.get("done") or todo.get("status") in ("failed", "canceled", "context_limit")):
         accumulate_stats([todo])
     save_todos([t for t in todos if t["id"] != todo_id])
+    save_news([n for n in load_news() if n.get("todo_id") != todo_id])
     return {"ok": True}
 
 
