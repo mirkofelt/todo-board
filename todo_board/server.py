@@ -184,7 +184,7 @@ def _recover_orphaned_todos() -> None:
     todos = load_todos()
     changed = False
     for t in todos:
-        if t.get("status") not in ("in_progress", "working"):
+        if t.get("status") not in ("in_progress", "planning", "working"):
             continue
         (DATA_DIR / f"worker_{t['id']}.pid").unlink(missing_ok=True)
         t["status"] = "pending"
@@ -244,7 +244,7 @@ def _recover_orphaned_todos() -> None:
         if t.get("status") == "planned":
             active_subs = [
                 s for s in todos
-                if s.get("parent_id") == t["id"] and s.get("status") in ("pending", "in_progress", "working")
+                if s.get("parent_id") == t["id"] and s.get("status") in ("pending", "in_progress", "planning", "working")
             ]
             if not active_subs:
                 t["status"] = "done"
@@ -283,7 +283,7 @@ def _prepare_for_restart() -> None:
     todos = load_todos()
     changed = False
     for t in todos:
-        if t.get("status") not in ("in_progress", "working"):
+        if t.get("status") not in ("in_progress", "planning", "working"):
             continue
         pid_file = DATA_DIR / f"worker_{t['id']}.pid"
         if pid_file.exists():
@@ -389,7 +389,7 @@ async def set_status(todo_id: int, request: Request):
             t["status"] = status
             t["status_updated_at"] = int(time.time())
             t["done"] = status == "done"
-            if status in ("done", "failed", "blocked", "pending", "session_limit", "planned"):
+            if status in ("done", "failed", "blocked", "pending", "session_limit", "planned", "planning"):
                 t["progress"] = None
             if duration_secs is not None:
                 t["duration_secs"] = int(duration_secs)
@@ -418,7 +418,7 @@ async def set_status(todo_id: int, request: Request):
             else:
                 pid = stalled.get("project_id")
                 other_active = any(
-                    t["id"] != todo_id and t.get("project_id") == pid and t.get("status") in ("in_progress", "working")
+                    t["id"] != todo_id and t.get("project_id") == pid and t.get("status") in ("in_progress", "planning", "working")
                     for t in todos
                 )
                 if other_active:
@@ -443,7 +443,7 @@ async def set_status(todo_id: int, request: Request):
             if finished2 and finished2.get("parent_id"):
                 parent_id_val = finished2["parent_id"]
                 siblings = [t for t in todos if t.get("parent_id") == parent_id_val]
-                if siblings and not any(s.get("status") in ("pending", "in_progress", "working") for s in siblings):
+                if siblings and not any(s.get("status") in ("pending", "in_progress", "planning", "working") for s in siblings):
                     parent = next((t for t in todos if t["id"] == parent_id_val), None)
                     if parent and parent.get("status") == "planned":
                         parent["status"] = "done"
@@ -521,8 +521,8 @@ def delete_all_done():
 def delete_todo(todo_id: int):
     todos = load_todos()
     todo = next((t for t in todos if t["id"] == todo_id), None)
-    if todo and todo.get("status") == "in_progress":
-        return JSONResponse({"ok": False, "error": "Cannot delete an in-progress todo"}, status_code=409)
+    if todo and todo.get("status") in ("in_progress", "planning", "working"):
+        return JSONResponse({"ok": False, "error": "Cannot delete an active todo"}, status_code=409)
     if todo and (todo.get("done") or todo.get("status") in ("failed", "canceled", "context_limit", "session_limit")):
         accumulate_stats([todo])
     # Cascade: also remove non-in_progress sub-tasks of the deleted task
@@ -608,8 +608,8 @@ async def lock_todo(todo_id: int, request: Request):
     target = None
     for t in todos:
         if t["id"] == todo_id:
-            if t.get("status") == "in_progress":
-                return JSONResponse({"ok": False, "error": "Cannot lock an in-progress todo"}, status_code=409)
+            if t.get("status") in ("in_progress", "planning", "working"):
+                return JSONResponse({"ok": False, "error": "Cannot lock an active todo"}, status_code=409)
             t["locked"] = locked
             target = t
             break
@@ -710,8 +710,8 @@ async def edit_todo(todo_id: int, request: Request):
     todos = load_todos()
     for t in todos:
         if t["id"] == todo_id:
-            if t.get("status") == "in_progress":
-                return JSONResponse({"ok": False, "error": "Cannot edit an in-progress todo"}, status_code=409)
+            if t.get("status") in ("in_progress", "planning", "working"):
+                return JSONResponse({"ok": False, "error": "Cannot edit an active todo"}, status_code=409)
             t["text"] = text
             t["locked"] = False
             break
@@ -810,6 +810,15 @@ async def create_news(request: Request):
         return JSONResponse({"ok": False, "error": "Message required"}, status_code=400)
     news = load_news()
     todo_id_val = body.get("todo_id")
+
+    # Drop entries for todos that no longer exist — prevents orphaned news from
+    # workers that finish after their todo was deleted.
+    if todo_id_val is not None:
+        todos = load_todos()
+        known_ids = {t["id"] for t in todos}
+        if todo_id_val not in known_ids:
+            return {"ok": True, "id": None}
+
     # For error/warning entries tied to a specific task, replace any existing
     # entry of the same type so retries don't flood the feed.
     if todo_id_val is not None and msg_type in ("error", "warning"):

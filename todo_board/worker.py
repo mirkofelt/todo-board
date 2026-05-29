@@ -212,6 +212,65 @@ def _collect_result_files(todo_id: int, file_paths: list) -> list:
     return result_files
 
 
+def _build_plan_prompt(todo_id: int, project_name: str, task_text: str) -> str:
+    return f"""You are deciding how to execute a task before starting work.
+
+## Task
+Todo #{todo_id} — Project: {project_name}
+{task_text}
+
+## Instructions
+Decide whether to handle this task directly or split it into sequential sub-tasks.
+
+Choose PLAN: direct for tasks that can be completed in a single focused pass.
+
+Choose sub-tasks only when the work has genuinely distinct phases where later phases depend on earlier results (e.g. research → implement → test as separate units).
+
+Output exactly one of:
+
+Option A — direct execution:
+PLAN: direct
+
+Option B — sequential sub-tasks (2–5, each a meaningful independent unit):
+SUBTASK: <first work unit>
+SUBTASK: <second work unit>
+...
+
+Rules:
+- When in doubt, go direct — sub-tasks add overhead
+- Max 5 sub-tasks; never split trivial steps
+- Each sub-task description must be self-contained and actionable
+- Output ONLY PLAN: direct or SUBTASK: lines — no explanation"""
+
+
+def _build_plan_cmd(plan_prompt: str, model: str) -> list:
+    return [
+        CLAUDE_BIN, "-p", plan_prompt,
+        "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--model", model,
+        "--max-turns", "2",
+    ]
+
+
+def _parse_plan(output_lines: list) -> tuple:
+    """Parse planning output. Returns (is_direct: bool, subtask_texts: list[str])."""
+    subtasks = []
+    is_direct = False
+    for line in output_lines:
+        stripped = line.strip()
+        if stripped.upper().startswith("PLAN:") and "direct" in stripped.lower():
+            is_direct = True
+        elif stripped.startswith("SUBTASK:"):
+            text = stripped[8:].strip()
+            if text:
+                subtasks.append(text)
+    if not subtasks:
+        is_direct = True  # default to direct if no sub-tasks and no explicit PLAN: direct
+    return is_direct, subtasks
+
+
 def _parse_questions(output_lines: list) -> list:
     """Extract QUESTION:/OPTION: blocks from output lines. Returns list of {question, options, answer} dicts."""
     questions = []
@@ -427,7 +486,6 @@ def main() -> None:
     pid_file = LOG_DIR / f"worker_{todo_id}.pid"
     pid_file.write_text(str(os.getpid()))
 
-    _api(f"/api/status/{todo_id}", {"status": "working"})
     _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
     system_prompt = _build_system_prompt(rules, memory)
@@ -438,6 +496,36 @@ def main() -> None:
         if existing_questions and all(q.get("answer") for q in existing_questions)
         else []
     )
+
+    # ── Planning phase (skipped for sub-tasks to avoid recursion) ────────────
+    if not parent_id:
+        _api(f"/api/status/{todo_id}", {"status": "planning"})
+        _api(f"/api/progress/{todo_id}", {"text": "Planning…"})
+        plan_cmd = _build_plan_cmd(_build_plan_prompt(todo_id, project_name, task_text), model)
+        _plan_rc, plan_lines, _plan_result, _plan_subtype, _plan_tokens, _plan_session, _plan_stderr = _invoke_claude(plan_cmd, todo_id)
+        _is_direct, subtask_texts = _parse_plan(plan_lines)
+
+        if subtask_texts:
+            # Create sequential sub-tasks and set parent to planned
+            prev_st_id = None
+            for idx, st_text in enumerate(subtask_texts, start=1):
+                payload: dict = {
+                    "text": st_text,
+                    "project_id": todo.get("project_id"),
+                    "parent_id": todo_id,
+                    "subtask_idx": idx,
+                }
+                if prev_st_id is not None:
+                    payload["prev_task_id"] = prev_st_id
+                resp = _api("/api/add", payload)
+                prev_st_id = resp.get("id")
+            _api(f"/api/status/{todo_id}", {"status": "planned"})
+            _api("/api/statusline", {"text": ""})
+            pid_file.unlink(missing_ok=True)
+            return
+        # Direct execution — fall through to working
+
+    _api(f"/api/status/{todo_id}", {"status": "working"})
 
     session_key = _session_key(todo.get("project_id"))
     sessions = _load_sessions()

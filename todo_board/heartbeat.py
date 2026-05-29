@@ -20,7 +20,7 @@ def detect_and_fix_stalled() -> list:
     now = int(time.time())
     changed = False
     for t in todos:
-        if t.get("status") == "in_progress":
+        if t.get("status") in ("in_progress", "planning"):
             updated_at = t.get("status_updated_at", t.get("created", now))
             if now - updated_at > CONTEXT_LIMIT_THRESHOLD:
                 t["status"] = "context_limit"

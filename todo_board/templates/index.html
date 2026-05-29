@@ -227,6 +227,13 @@ button:hover { background: #059669; }
 .todo-item.session-limit { border-color: #6366f1; background: #0f0e1e; }
 .todo-statusbar.session-limit { background: #6366f1; }
 .status-badge.session-limit { background: #1a1040; border: 1px solid #6366f1; color: #a5b4fc; }
+.todo-item.planning { border-color: #a855f7; background: #0f0a1e; }
+.todo-statusbar.planning {
+  background: linear-gradient(90deg, #7c3aed 0%, #a855f7 50%, #7c3aed 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.status-badge.planning { background: #0e0720; border: 1px solid #a855f7; color: #d8b4fe; }
 .todo-item.planned { border-color: #0891b2; background: #061a20; }
 .todo-statusbar.planned {
   background: linear-gradient(90deg, #0891b2 0%, #22d3ee 50%, #0891b2 100%);
@@ -1265,8 +1272,8 @@ function renderTodos() {
   // Only show top-level tasks (no parent_id) in the main lists
   const isSubtask = t => t.parent_id != null;
   // Reverse pending so "next to execute" (oldest = last in array) is at top
-  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "working" && t.status !== "planned" && t.status !== "canceled" && !isSubtask(t)).reverse();
-  const inProgress = todos.filter(t => (t.status === "in_progress" || t.status === "working" || t.status === "planned") && !isSubtask(t));
+  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "working" && t.status !== "planning" && t.status !== "planned" && t.status !== "canceled" && !isSubtask(t)).reverse();
+  const inProgress = todos.filter(t => (t.status === "in_progress" || t.status === "working" || t.status === "planning" || t.status === "planned") && !isSubtask(t));
   const done = todos.filter(t => (t.done || t.status === "canceled") && !isSubtask(t));
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
@@ -1356,6 +1363,11 @@ function progressCircleHtml(t) {
   if (t.status === 'canceled') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#475569" stroke-width="2"/></svg>`;
   }
+  if (t.status === 'planning') {
+    const elapsed = (Date.now() / 1000) - (t.status_updated_at || 0);
+    const delay = (-Math.min(elapsed, 299)).toFixed(1);
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="animation:todo-circle-fill 300s linear forwards;animation-delay:${delay}s"/></svg>`;
+  }
   if (t.status === 'in_progress' || t.status === 'working') {
     const elapsed = (Date.now() / 1000) - (t.status_updated_at || 0);
     const delay = (-Math.min(elapsed, 299)).toFixed(1);
@@ -1382,6 +1394,7 @@ function subtaskListHtml(subtasks) {
 
 function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   const inProgress = t.status === "in_progress" || t.status === "working";
+  const isPlanning = t.status === "planning";
   const isBlocked = t.status === "blocked";
   const isFailed = t.status === "failed";
   const isContextLimit = t.status === "context_limit";
@@ -1433,6 +1446,8 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
     statusBadge = `<span class="status-badge done-label">Done ✓</span>`;
   } else if (t.status === "working") {
     statusBadge = `<span class="status-badge working"><span class="pulse"></span>Working…</span>`;
+  } else if (isPlanning) {
+    statusBadge = `<span class="status-badge planning"><span class="pulse"></span>Planning…</span>`;
   } else if (inProgress) {
     statusBadge = `<span class="status-badge in-progress"><span class="pulse"></span>Starting…</span>`;
   } else if (isBlocked) {
@@ -1469,7 +1484,7 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
     if (parts.length > 0) {
       statsHtml = `<span class="meta-stats">${parts.join(" · ")}</span>`;
     }
-  } else if (inProgress && t.status_updated_at) {
+  } else if ((inProgress || isPlanning) && t.status_updated_at) {
     const elapsed = Math.floor(Date.now() / 1000) - t.status_updated_at;
     statsHtml = `<span class="meta-stats" data-started-at="${t.status_updated_at}">Runtime: ${fmtElapsed(elapsed)}</span>`;
   }
@@ -1477,6 +1492,7 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   let cls = "";
   if (isDone) cls = "done";
   else if (t.status === "working") cls = "working";
+  else if (isPlanning) cls = "planning";
   else if (inProgress) cls = "in-progress";
   else if (isBlocked) cls = "blocked";
   else if (isFailed) cls = "failed";
@@ -1487,7 +1503,7 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   else if (isCanceled) cls = "canceled";
 
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
-  const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
+  const progress = (inProgress || isPlanning) && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
   const subtasks = subtaskListHtml(subtasksByParent[t.id]);
 
   let questionHtml = "";
@@ -1513,10 +1529,10 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
     }
   }
 
-  const cancelBtn = inProgress ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
+  const cancelBtn = (inProgress || isPlanning) ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
   const resumeBtn = (isContextLimit || isSessionLimit) ? `<button class="btn-resume btn-sm" onclick="resumeTodo(${t.id})" title="Resume now">▶ Continue</button>` : "";
   const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
-  const deleteBtn = (!inProgress && !isWaiting) ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
+  const deleteBtn = (!inProgress && !isPlanning && !isWaiting) ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
   const isPending = t.status === "pending";
   const draggableAttr = isPending ? `draggable="true" data-todo-id="${t.id}"` : `data-todo-id="${t.id}"`;

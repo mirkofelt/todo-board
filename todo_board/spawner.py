@@ -9,7 +9,7 @@ def project_has_active_worker(project_id, todos: list) -> bool:
     if project_id is None:
         return False
     return any(
-        t.get("project_id") == project_id and t.get("status") in ("in_progress", "working")
+        t.get("project_id") == project_id and t.get("status") in ("in_progress", "planning", "working")
         for t in todos
     )
 
