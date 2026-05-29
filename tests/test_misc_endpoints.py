@@ -169,8 +169,8 @@ async def test_state_returns_mtime_fields(app, seed_todos):
     data = r.json()
     assert "mtime" in data
     assert "plugin_states_mtime" in data
-    assert "news_mtime" not in data
-    assert "news_unread" not in data
+    assert "news_mtime" in data
+    assert "news_unread" in data
 
 
 @pytest.mark.asyncio

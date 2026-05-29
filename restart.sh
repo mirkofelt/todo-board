@@ -55,7 +55,7 @@ fi
 cd "$SCRIPT_DIR"
 # Unset any test env vars that pytest may have injected into the environment
 unset TODO_BOARD_DATA_DIR TODO_BOARD_PROJECTS_DIR
-nohup python3 -m uvicorn app:app --host 0.0.0.0 --port "$PORT" \
+nohup "$SCRIPT_DIR/.venv/bin/python" -m uvicorn app:app --host 0.0.0.0 --port "$PORT" \
   > "$LOG_FILE" 2>&1 &
 echo $! > "$PID_FILE"
 sleep 2

@@ -23,6 +23,7 @@ PROJECTS_FILE = _DATA_DIR / "projects.json"
 RULES_FILE = _DATA_DIR / "rules.txt"
 SESSIONS_FILE = _DATA_DIR / "sessions.json"
 LOG_DIR = _DATA_DIR
+RESULTS_DIR = _DATA_DIR / "results"
 
 BOARD_URL = os.environ.get("TODO_BOARD_URL", "http://localhost:7842")
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "claude"
@@ -136,9 +137,47 @@ Examples:
 
 ## Output
 When you finish successfully, output nothing extra (or a brief summary).
+If the task produced output files, announce each on its own line as: FILE:/absolute/path/to/file
 If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 """)
     return "\n\n".join(parts)
+
+
+def _parse_file_outputs(output_lines: list) -> list:
+    """Extract FILE: markers from output lines. Returns list of file path strings."""
+    paths = []
+    for line in output_lines:
+        stripped = line.strip()
+        if stripped.startswith("FILE:"):
+            path = stripped[5:].strip()
+            if path:
+                paths.append(path)
+    return paths
+
+
+def _collect_result_files(todo_id: int, file_paths: list) -> list:
+    """Copy announced files to the results directory and return metadata list."""
+    result_files = []
+    if not file_paths:
+        return result_files
+    dest_dir = RESULTS_DIR / str(todo_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for fp in file_paths:
+        src = Path(fp)
+        if not src.is_file():
+            print(f"FILE: path not found, skipping: {fp}", file=sys.stderr)
+            continue
+        dest = dest_dir / src.name
+        try:
+            shutil.copy2(str(src), str(dest))
+            result_files.append({
+                "name": src.name,
+                "url": f"/api/results/{todo_id}/{src.name}",
+                "size": dest.stat().st_size,
+            })
+        except Exception as e:
+            print(f"Failed to copy result file {fp}: {e}", file=sys.stderr)
+    return result_files
 
 
 def _parse_questions(output_lines: list) -> list:
@@ -356,7 +395,7 @@ def main() -> None:
     pid_file = LOG_DIR / f"worker_{todo_id}.pid"
     pid_file.write_text(str(os.getpid()))
 
-    _api(f"/api/status/{todo_id}", {"status": "in_progress"})
+    _api(f"/api/status/{todo_id}", {"status": "working"})
     _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
     system_prompt = _build_system_prompt(rules, memory)
@@ -412,12 +451,21 @@ def main() -> None:
         "\n".join(output_lines) + ("\n\nSTDERR:\n" + stderr_out if stderr_out else "")
     )
 
+    file_paths = _parse_file_outputs(output_lines)
+    result_files = _collect_result_files(todo_id, file_paths)
+
     # Check if Claude is waiting for user input before proceeding.
     wants_answers = any(l.strip() == "WAITING_FOR_ANSWERS" for l in output_lines)
     if wants_answers:
         questions = _parse_questions(output_lines)
         if questions:
             _api(f"/api/questions/{todo_id}", {"questions": questions})
+            _api("/api/news", {
+                "type": "warning",
+                "message": f"Task #{todo_id} has {len(questions)} question(s) — waiting for your input",
+                "todo_id": todo_id,
+                "project_id": todo.get("project_id"),
+            })
             _api("/api/statusline", {"text": ""})
             pid_file.unlink(missing_ok=True)
             return
@@ -441,12 +489,41 @@ def main() -> None:
         # No news feed entry for session limit — task auto-resumes
     elif hit_limit:
         _api(f"/api/status/{todo_id}", {"status": "context_limit", "duration_secs": duration_secs, "tokens": token_data})
+        _api("/api/news", {
+            "type": "warning",
+            "message": f"Task #{todo_id} interrupted — context limit reached",
+            "todo_id": todo_id,
+            "project_id": todo.get("project_id"),
+        })
     elif output.startswith("FAILED:") or rc != 0:
         reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {rc}"
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
+        _api("/api/news", {
+            "type": "error",
+            "message": f"Task #{todo_id} failed: {reason[:200]}",
+            "todo_id": todo_id,
+            "project_id": todo.get("project_id"),
+        })
     else:
-        _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]})
+        status_payload: dict = {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]}
+        if result_files:
+            status_payload["result_files"] = result_files
+        _api(f"/api/status/{todo_id}", status_payload)
+        _api(f"/api/news/clear-question-warning/{todo_id}", {})
+        trimmed = output.strip()
+        # Post news if output is substantive or files were produced
+        if len(trimmed) > 60 or result_files:
+            snippet = " ".join(trimmed.split())[:180]
+            news_payload: dict = {
+                "type": "info",
+                "message": f"Task #{todo_id}: {snippet}" if snippet else f"Task #{todo_id} completed — {len(result_files)} file(s) delivered",
+                "todo_id": todo_id,
+                "project_id": todo.get("project_id"),
+            }
+            if result_files:
+                news_payload["files"] = result_files
+            _api("/api/news", news_payload)
 
     _api("/api/statusline", {"text": ""})
     pid_file.unlink(missing_ok=True)

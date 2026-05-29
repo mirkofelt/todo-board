@@ -115,6 +115,15 @@ body {
 .news-task-ref { color: #94a3b8; cursor: pointer; font-family: monospace; }
 .news-task-ref:hover { color: #e2e8f0; text-decoration: underline; }
 .news-empty { color: #94a3b8; font-size: 13px; padding: 8px 0; }
+.news-files { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; }
+.news-file-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #0f2744; border: 1px solid #1d4ed8;
+  border-radius: 4px; padding: 3px 8px;
+  font-size: 11px; color: #60a5fa; text-decoration: none;
+  transition: background .15s;
+}
+.news-file-chip:hover { background: #1e3a5f; color: #93c5fd; }
 
 h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .h1-stats { font-size: 11px; font-family: monospace; color: #334155; font-weight: 400; white-space: nowrap; }
@@ -1102,11 +1111,18 @@ function renderNews() {
     if (n.url) {
       meta += `<a class="news-task-ref" href="${esc(n.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">↗ open</a>`;
     }
+    let filesHtml = '';
+    if (n.files && n.files.length) {
+      filesHtml = `<div class="news-files">${n.files.map(f =>
+        `<a class="news-file-chip" href="${esc(f.url)}" download="${esc(f.name)}" title="${esc(f.name)}">↓ ${esc(f.name)}</a>`
+      ).join('')}</div>`;
+    }
     return `<div class="news-item type-${n.type}${readCls}">
       <span class="news-icon">${icon}</span>
       <div class="news-body">
         <div class="news-message">${esc(n.message)}</div>
         <div class="news-meta">${meta}</div>
+        ${filesHtml}
       </div>
     </div>`;
   }).join("");

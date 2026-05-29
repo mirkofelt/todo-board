@@ -6,6 +6,7 @@ from .config import (
     DEFAULT_PROJECTS,
     DEFAULT_RULES,
     GITHUB_LINKS_FILE,
+    NEWS_FILE,
     PLUGIN_STATES_FILE,
     PLUGINS_FILE,
     PROJECTS_DIR,
@@ -119,6 +120,16 @@ def load_stats() -> dict:
 
 def save_stats(data: dict) -> None:
     STATS_FILE.write_text(json.dumps(data, ensure_ascii=False))
+
+
+def load_news() -> list:
+    if not NEWS_FILE.exists():
+        return []
+    return json.loads(NEWS_FILE.read_text())
+
+
+def save_news(news: list) -> None:
+    NEWS_FILE.write_text(json.dumps(news, ensure_ascii=False, indent=2))
 
 
 def load_github_links() -> dict:

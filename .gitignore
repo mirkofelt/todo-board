@@ -16,6 +16,7 @@ news.json
 counter.json
 github_links.json
 github_seen_releases.json
+crypto_state.json
 
 # Local config — contains machine-specific paths, not tracked
 plugins.json
