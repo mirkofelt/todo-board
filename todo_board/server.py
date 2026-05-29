@@ -326,13 +326,22 @@ async def lock_todo(todo_id: int, request: Request):
     body = await request.json()
     locked = bool(body.get("locked", True))
     todos = load_todos()
+    target = None
     for t in todos:
         if t["id"] == todo_id:
             if t.get("status") == "in_progress":
                 return JSONResponse({"ok": False, "error": "Cannot lock an in-progress todo"}, status_code=409)
             t["locked"] = locked
+            target = t
             break
     save_todos(todos)
+    if not locked and target and target.get("status") == "pending":
+        project_id = target.get("project_id")
+        if not project_has_active_worker(project_id, todos):
+            target["status"] = "in_progress"
+            target["status_updated_at"] = int(time.time())
+            save_todos(todos)
+            spawn_worker(todo_id)
     return {"ok": True}
 
 

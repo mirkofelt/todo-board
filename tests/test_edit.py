@@ -118,3 +118,47 @@ async def test_todos_endpoint_exposes_locked_field(app, seed_todos):
     assert r.status_code == 200
     data = r.json()
     assert data[0]["locked"] is True
+
+
+@pytest.mark.asyncio
+async def test_unlock_pending_spawns_worker(app, seed_todos, read_todos, monkeypatch):
+    """Unlocking a pending todo immediately sets it in_progress when no worker is active."""
+    spawned = []
+    monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: spawned.append(tid))
+    seed_todos([_todo(1, "Paused task", status="pending", locked=True)])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/lock/1", json={"locked": False})
+    assert r.status_code == 200
+    assert spawned == [1]
+    todos = read_todos()
+    assert todos[0]["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_unlock_pending_no_spawn_if_worker_active(app, seed_todos, read_todos, monkeypatch):
+    """Unlocking a pending todo does not spawn when another task is already in_progress."""
+    spawned = []
+    monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: spawned.append(tid))
+    seed_todos([
+        _todo(1, "Running task", status="in_progress", project_id=1),
+        _todo(2, "Paused task", status="pending", locked=True, project_id=1),
+    ])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/lock/2", json={"locked": False})
+    assert r.status_code == 200
+    assert spawned == []
+    todos = read_todos()
+    by_id = {t["id"]: t for t in todos}
+    assert by_id[2]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_lock_does_not_spawn(app, seed_todos, read_todos, monkeypatch):
+    """Locking a pending todo never spawns a worker."""
+    spawned = []
+    monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: spawned.append(tid))
+    seed_todos([_todo(1, "Free task", status="pending", locked=False)])
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.post("/api/lock/1", json={"locked": True})
+    assert r.status_code == 200
+    assert spawned == []
