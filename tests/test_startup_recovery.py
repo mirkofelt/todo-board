@@ -50,10 +50,9 @@ def test_orphaned_in_progress_reset_to_pending(data_dir, monkeypatch):
     assert 1 in spawned
 
 
-def test_live_worker_not_reset(data_dir, tmp_path, monkeypatch):
+def test_in_progress_with_pid_file_still_reset(data_dir, tmp_path, monkeypatch):
+    """PID files are unreliable after a reboot (PIDs get reused), so we reset unconditionally."""
     import os
-    import signal
-
     import importlib
     import todo_board.config as cfg
     import todo_board.storage as storage
@@ -63,18 +62,19 @@ def test_live_worker_not_reset(data_dir, tmp_path, monkeypatch):
     importlib.reload(storage)
     importlib.reload(server)
 
-    # Write a PID file pointing at the current (live) process
+    # Even with a PID file pointing at a live process, the task is reset and respawned
     pid_file = data_dir / "worker_1.pid"
     pid_file.write_text(str(os.getpid()))
-    (data_dir / "todos.json").write_text(__import__("json").dumps([_todo(1, "Live")]))
+    (data_dir / "todos.json").write_text(__import__("json").dumps([_todo(1, "InProgress")]))
 
     spawned = []
     monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: spawned.append(tid))
     server._recover_orphaned_todos()
 
     todos = __import__("json").loads((data_dir / "todos.json").read_text())
-    assert todos[0]["status"] == "in_progress"
-    assert spawned == []
+    assert todos[0]["status"] == "in_progress"  # reset to pending, then re-queued
+    assert 1 in spawned
+    assert not pid_file.exists()
 
 
 def test_waiting_todos_not_touched(data_dir, monkeypatch):
