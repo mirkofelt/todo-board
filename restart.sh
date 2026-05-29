@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Restart the todo-board uvicorn server.
-# Run this after any change to server code.
+# Sends SIGTERM and waits for graceful shutdown (_prepare_for_restart) before starting fresh.
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE=/tmp/todo-board.pid
 LOG_FILE=/tmp/todo-board.log
 PORT=7842
 
-# Kill any process currently listening on the port
-_kill_port() {
+# Find PID of the process listening on PORT via /proc/net/tcp
+_find_pid() {
   python3 - <<'PYEOF'
 import os, glob
 PORT = 7842
@@ -33,10 +33,23 @@ for pid_dir in glob.glob('/proc/[0-9]*'):
 PYEOF
 }
 
-OLD_PID=$(_kill_port)
+OLD_PID=$(_find_pid)
 if [ -n "$OLD_PID" ]; then
-  kill "$OLD_PID" 2>/dev/null && echo "Stopped old server (PID $OLD_PID)" || true
-  sleep 1
+  kill "$OLD_PID" 2>/dev/null && echo "Stopping server (PID $OLD_PID), waiting for graceful shutdown..." || true
+  # Wait up to 10s for _prepare_for_restart() to complete (SIGTERM workers, flush state)
+  for i in $(seq 1 10); do
+    if ! kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "Server stopped after ${i}s"
+      break
+    fi
+    sleep 1
+  done
+  # Force-kill if still alive after graceful window
+  if kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Force-killing server (PID $OLD_PID)"
+    kill -9 "$OLD_PID" 2>/dev/null || true
+    sleep 1
+  fi
 fi
 
 cd "$SCRIPT_DIR"
