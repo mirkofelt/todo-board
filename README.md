@@ -6,12 +6,13 @@ worker subprocesses (Claude CLI) and their status tracked in real time.
 ## Features
 
 - Dark-themed web UI with live polling (no page reload needed)
-- Tasks grouped by project, with status badges: `pending`, `in_progress`, `working`, `done`, `blocked`, `failed`, `canceled`, `context_limit`, `session_limit`
+- Tasks grouped by project, with color-coded status badges: `pending`, `in_progress`, `planning` (blue), `working`, `planned`, `waiting` (purple), `done`, `blocked`, `failed`, `canceled`, `context_limit`, `session_limit`
 - Auto-spawns one Claude worker per project (enforced: no concurrent workers on the same project)
 - **Session reuse per project** — each project maintains a Claude session; subsequent todos resume where the last one left off, cutting context overhead significantly
 - **Stale session fallback** — if a session has expired, automatically retries with a fresh cold start
 - **Task chaining** — link tasks via `prev_task_id`; each task receives the previous task's result as context
-- **Sub-tasks** — tasks can have a `parent_id`; parent auto-completes when all sub-tasks finish
+- **Planning phase** — before execution, each task is evaluated: simple tasks run directly (`working`); complex tasks are split into sequential sub-tasks (`planning` → `planned` → `working`)
+- **Sub-tasks** — tasks can have a `parent_id`; parent transitions `planned` → `working` when the first sub-task starts, then auto-completes to `done` when all sub-tasks finish
 - **Model tiering** — configurable model per project (or per todo); defaults to `CLAUDE_MODEL` env var
 - **Runaway protection** — configurable max turns and optional budget cap per worker run
 - **Stalled worker detection** — workers stalled >25 min are re-queued automatically
@@ -204,17 +205,23 @@ stateDiagram-v2
 
     pending --> in_progress : worker spawned\n(add / cancel / done / failed / heartbeat)
 
-    in_progress --> working : worker sets status
-    working --> done : worker succeeds
+    in_progress --> planning : planning phase starts
+    planning --> planned : sub-tasks created
+    planning --> working : direct execution (no sub-tasks)
+    planned --> working : first sub-task starts
+    working --> done : worker / all sub-tasks succeed
     working --> failed : worker errors
     working --> context_limit : context window exceeded
     working --> session_limit : session quota hit
     working --> canceled : user cancels (SIGTERM)
+    working --> waiting : clarification needed
     in_progress --> done : worker succeeds
     in_progress --> failed : worker errors
     in_progress --> context_limit : context window exceeded
     in_progress --> session_limit : session quota hit
     in_progress --> canceled : user cancels (SIGTERM)
+
+    waiting --> in_progress : all questions answered
 
     context_limit --> in_progress : /resume (project free)
     context_limit --> pending : /resume (project busy)\nor heartbeat retry
@@ -229,33 +236,40 @@ stateDiagram-v2
 
 `blocked` is a manual hold state (set via `/api/status`) with no automatic transitions — it pauses dispatch without deleting the todo.
 
-`planned` is used for parent tasks that are waiting for their sub-tasks to complete.
+`planning` (blue) — worker is deciding whether to split the task into sub-tasks.  
+`planned` — sub-tasks have been created; parent waits for the first one to start.  
+`working` (green) — Claude is actively processing the task (or sub-tasks are running).  
+`waiting` (purple) — task has emitted `QUESTION:` / `WAITING_FOR_ANSWERS` and is paused for user input.
 
 ## Worker lifecycle
 
 When a new todo is added (and no worker is active for its project), `todo_board/worker.py` is
 spawned as a subprocess. It:
 
-1. Sets status → `in_progress`, then → `working` once the Claude process starts
-2. If a prior session exists for the project, resumes it with `--resume <session_id>` (falls back to cold start if session is expired or invalid)
-3. Cold start: calls `claude -p <task> --append-system-prompt <rules+memory> --output-format stream-json`
-4. If the todo has a `prev_task_id`, the previous task's stored `result` is injected into the prompt as context
-5. If the todo has pending answered questions, they are injected as clarifications
-6. Parses streaming JSON output, forwarding `STATUS:` lines as live progress updates
-7. Collects any `FILE:` lines and copies the referenced files to `results/<todo_id>/`
-8. Saves the returned `session_id` for the next todo in the same project
-9. On completion: sets status → `done` (with `result` up to 3000 chars and optional `result_files`) or `failed`, records token usage (incl. cache breakdown) and duration
-10. Posts a News Feed entry with a result snippet and any file download links
-11. Clears the status line and removes its PID file
+1. Sets status → `planning` (blue) and asks Claude to decide: run directly or split into sub-tasks
+2. If sub-tasks are needed: creates them via `/api/add`, sets parent → `planned`; sub-tasks then run sequentially, transitioning parent to `working` when the first starts
+3. If no sub-tasks: falls through to direct execution
+4. Sets status → `working` (green) once the Claude process starts on the actual task
+5. If a prior session exists for the project, resumes it with `--resume <session_id>` (falls back to cold start if session is expired or invalid)
+6. Cold start: calls `claude -p <task> --append-system-prompt <rules+memory> --output-format stream-json`
+7. If the todo has a `prev_task_id`, the previous task's stored `result` is injected into the prompt as context
+8. If the todo has pending answered questions, they are injected as clarifications
+9. Parses streaming JSON output, forwarding `STATUS:` lines as live progress updates
+10. Collects any `FILE:` lines and copies the referenced files to `results/<todo_id>/`
+11. Saves the returned `session_id` for the next todo in the same project
+12. On completion: sets status → `done` (with `result` up to 3000 chars and optional `result_files`) or `failed`, records token usage (incl. cache breakdown) and duration
+13. Posts a News Feed entry with a result snippet and any file download links
+14. Clears the status line and removes its PID file
 
 When a worker finishes (`done`, `failed`, or `canceled`), the server automatically picks up the
 next `pending` todo in the same project and spawns a new worker for it.
 
 ## Startup recovery
 
-On startup, all tasks in `in_progress` or `working` state are unconditionally reset to `pending`
-and their PID files removed. This guarantees clean recovery after a SIGKILL, host reboot, or any
-other unclean shutdown — no stale tasks ever get permanently stuck.
+On startup, all tasks in `in_progress`, `planning`, or `working` state are unconditionally reset to
+`pending` (or back to `planned` for parent tasks that were supervising sub-tasks) and their PID
+files removed. This guarantees clean recovery after a SIGKILL, host reboot, or any other unclean
+shutdown — no stale tasks ever get permanently stuck.
 
 ## Testing
 

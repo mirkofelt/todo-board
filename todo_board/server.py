@@ -170,6 +170,13 @@ def _spawn_next_pending(project_id, todos: list) -> None:
     if nxt:
         nxt["status"] = "in_progress"
         nxt["status_updated_at"] = int(time.time())
+        # When a subtask starts, transition its planned parent to working
+        parent_id = nxt.get("parent_id")
+        if parent_id:
+            parent = next((t for t in todos if t["id"] == parent_id), None)
+            if parent and parent.get("status") == "planned":
+                parent["status"] = "working"
+                parent["status_updated_at"] = int(time.time())
         save_todos(todos)
         spawn_worker(nxt["id"])
 
@@ -183,11 +190,17 @@ def _recover_orphaned_todos() -> None:
     """
     todos = load_todos()
     changed = False
+    parents_with_subtasks = {t["parent_id"] for t in todos if t.get("parent_id") is not None}
     for t in todos:
         if t.get("status") not in ("in_progress", "planning", "working"):
             continue
         (DATA_DIR / f"worker_{t['id']}.pid").unlink(missing_ok=True)
-        t["status"] = "pending"
+        # A working task that is a planned parent (has subtasks) resets to planned, not pending,
+        # so it stays in the in-progress column and its subtasks can be re-spawned.
+        if t["id"] in parents_with_subtasks and t.get("status") == "working":
+            t["status"] = "planned"
+        else:
+            t["status"] = "pending"
         t["status_updated_at"] = int(time.time())
         t["progress"] = None
         changed = True
@@ -236,12 +249,12 @@ def _recover_orphaned_todos() -> None:
         save_todos(todos)
         todos = load_todos()
 
-    # Auto-complete "planned" tasks whose sub-tasks have all terminated (none pending/in_progress).
+    # Auto-complete "planned"/"working" parent tasks whose sub-tasks have all terminated.
     # This handles cases where sub-tasks finished without triggering the real-time auto-complete
     # (e.g. sub-tasks lacked parent_id, or some sub-tasks failed).
     plan_changed = False
     for t in todos:
-        if t.get("status") == "planned":
+        if t.get("status") in ("planned", "working") and t["id"] in parents_with_subtasks:
             active_subs = [
                 s for s in todos
                 if s.get("parent_id") == t["id"] and s.get("status") in ("pending", "in_progress", "planning", "working")
@@ -282,6 +295,7 @@ def _prepare_for_restart() -> None:
     and sync MEMORY.md to persistent storage so the next session starts with current state."""
     todos = load_todos()
     changed = False
+    parents_with_subtasks = {t["parent_id"] for t in todos if t.get("parent_id") is not None}
     for t in todos:
         if t.get("status") not in ("in_progress", "planning", "working"):
             continue
@@ -293,7 +307,12 @@ def _prepare_for_restart() -> None:
             except (ValueError, ProcessLookupError, OSError):
                 pass
             pid_file.unlink(missing_ok=True)
-        t["status"] = "pending"
+        # Planned parents in working state have no active worker — reset to planned so they
+        # remain visible in the in-progress column and subtasks get re-spawned on startup.
+        if t["id"] in parents_with_subtasks and t.get("status") == "working":
+            t["status"] = "planned"
+        else:
+            t["status"] = "pending"
         t["status_updated_at"] = int(time.time())
         # Keep progress text — shows where the task was interrupted; will be
         # overwritten once the worker resumes and emits its first STATUS line.
@@ -445,7 +464,7 @@ async def set_status(todo_id: int, request: Request):
                 siblings = [t for t in todos if t.get("parent_id") == parent_id_val]
                 if siblings and not any(s.get("status") in ("pending", "in_progress", "planning", "working") for s in siblings):
                     parent = next((t for t in todos if t["id"] == parent_id_val), None)
-                    if parent and parent.get("status") == "planned":
+                    if parent and parent.get("status") in ("planned", "working"):
                         parent["status"] = "done"
                         parent["done"] = True
                         parent["status_updated_at"] = int(time.time())

@@ -227,13 +227,13 @@ button:hover { background: #059669; }
 .todo-item.session-limit { border-color: #6366f1; background: #0f0e1e; }
 .todo-statusbar.session-limit { background: #6366f1; }
 .status-badge.session-limit { background: #1a1040; border: 1px solid #6366f1; color: #a5b4fc; }
-.todo-item.planning { border-color: #a855f7; background: #0f0a1e; }
+.todo-item.planning { border-color: #3b82f6; background: #071422; }
 .todo-statusbar.planning {
-  background: linear-gradient(90deg, #7c3aed 0%, #a855f7 50%, #7c3aed 100%);
+  background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 50%, #1d4ed8 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
-.status-badge.planning { background: #0e0720; border: 1px solid #a855f7; color: #d8b4fe; }
+.status-badge.planning { background: #071422; border: 1px solid #3b82f6; color: #93c5fd; }
 .todo-item.planned { border-color: #0891b2; background: #061a20; }
 .todo-statusbar.planned {
   background: linear-gradient(90deg, #0891b2 0%, #22d3ee 50%, #0891b2 100%);
@@ -1366,7 +1366,7 @@ function progressCircleHtml(t) {
   if (t.status === 'planning') {
     const elapsed = (Date.now() / 1000) - (t.status_updated_at || 0);
     const delay = (-Math.min(elapsed, 299)).toFixed(1);
-    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#a855f7" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="animation:todo-circle-fill 300s linear forwards;animation-delay:${delay}s"/></svg>`;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1e293b" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-dasharray="${circ}" stroke-dashoffset="${circ}" stroke-linecap="round" transform="rotate(-90 ${cx} ${cy})" style="animation:todo-circle-fill 300s linear forwards;animation-delay:${delay}s"/></svg>`;
   }
   if (t.status === 'in_progress' || t.status === 'working') {
     const elapsed = (Date.now() / 1000) - (t.status_updated_at || 0);
