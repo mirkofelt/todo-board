@@ -454,7 +454,6 @@ async def reorder_todos(request: Request):
     id_to_todo = {t["id"]: t for t in todos}
     # Positions (ascending) of todos being reordered in current array
     positions = sorted(i for i, t in enumerate(todos) if t["id"] in id_set)
-    # ids[0] = runs first = needs highest array index (reversed() picks last element first)
     result = list(todos)
     for pos, todo_id in zip(reversed(positions), ids):
         if todo_id in id_to_todo:
