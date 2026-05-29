@@ -1,7 +1,50 @@
-"""Tests for the /api/breakdown endpoint."""
+"""Tests for the /api/breakdown endpoint and _parse_tasks helper."""
 import unittest.mock as mock
 import pytest
 from httpx import AsyncClient, ASGITransport
+from todo_board.breakdown import _parse_tasks
+
+
+# ── _parse_tasks unit tests ───────────────────────────────────────────────────
+
+def test_parse_tasks_bare_json_array():
+    assert _parse_tasks('["A", "B", "C"]') == ["A", "B", "C"]
+
+
+def test_parse_tasks_in_fenced_code_block():
+    text = '```json\n["Step 1", "Step 2"]\n```'
+    assert _parse_tasks(text) == ["Step 1", "Step 2"]
+
+
+def test_parse_tasks_fenced_without_language():
+    text = '```\n["Do X", "Do Y"]\n```'
+    assert _parse_tasks(text) == ["Do X", "Do Y"]
+
+
+def test_parse_tasks_with_prose_before():
+    text = 'Here are the tasks:\n["Task A", "Task B", "Task C"]'
+    assert _parse_tasks(text) == ["Task A", "Task B", "Task C"]
+
+
+def test_parse_tasks_filters_empty_strings():
+    assert _parse_tasks('["Step 1", "", "Step 2", "  "]') == ["Step 1", "Step 2"]
+
+
+def test_parse_tasks_invalid_json_returns_empty():
+    assert _parse_tasks("not json at all") == []
+
+
+def test_parse_tasks_empty_string_returns_empty():
+    assert _parse_tasks("") == []
+
+
+def test_parse_tasks_non_list_json_returns_empty():
+    assert _parse_tasks('{"key": "value"}') == []
+
+
+def test_parse_tasks_coerces_non_string_items():
+    result = _parse_tasks('[1, "two", 3]')
+    assert result == ["1", "two", "3"]
 
 
 @pytest.mark.asyncio
