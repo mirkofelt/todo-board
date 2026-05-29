@@ -37,8 +37,52 @@ from .storage import (
 _TEMPLATE = Path(__file__).parent / "templates" / "index.html"
 
 
+def _recover_orphaned_todos() -> None:
+    """On startup, reset in_progress todos whose worker process is gone to pending,
+    then kick off one worker per project that has pending work."""
+    todos = load_todos()
+    changed = False
+    for t in todos:
+        if t.get("status") != "in_progress":
+            continue
+        pid_file = DATA_DIR / f"worker_{t['id']}.pid"
+        alive = False
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text().strip()), 0)
+                alive = True
+            except (ValueError, ProcessLookupError, OSError):
+                pid_file.unlink(missing_ok=True)
+        if not alive:
+            t["status"] = "pending"
+            t["status_updated_at"] = int(time.time())
+            t["progress"] = None
+            changed = True
+    if changed:
+        save_todos(todos)
+
+    todos = load_todos()
+    projects_started: set = set()
+    to_spawn: list = []
+    for t in reversed(todos):
+        pid = t.get("project_id")
+        if t.get("status") != "pending" or t.get("locked"):
+            continue
+        if pid in projects_started or project_has_active_worker(pid, todos):
+            continue
+        t["status"] = "in_progress"
+        t["status_updated_at"] = int(time.time())
+        projects_started.add(pid)
+        to_spawn.append(t["id"])
+    if to_spawn:
+        save_todos(todos)
+        for tid in to_spawn:
+            spawn_worker(tid)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _recover_orphaned_todos()
     task = asyncio.create_task(run_release_poller())
     yield
     task.cancel()
