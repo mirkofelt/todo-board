@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import DATA_DIR, MAX_RETRIES, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
+from .config import DATA_DIR, MAX_RETRIES, MEMORY_BACKUP_FILE, MEMORY_FILE, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
 from .github_poller import poll_github_releases, run_release_poller
 from .plugin_runner import is_running, run_plugin
 from .spawner import project_has_active_worker, spawn_worker
@@ -81,8 +81,8 @@ def _recover_orphaned_todos() -> None:
 
 
 def _prepare_for_restart() -> None:
-    """On shutdown, SIGTERM all running worker processes and reset in_progress todos
-    to pending so startup recovery can respawn them cleanly after restart."""
+    """On shutdown, SIGTERM all running worker processes, reset in_progress todos to pending,
+    and sync MEMORY.md to persistent storage so the next session starts with current state."""
     todos = load_todos()
     changed = False
     for t in todos:
@@ -102,6 +102,10 @@ def _prepare_for_restart() -> None:
         changed = True
     if changed:
         save_todos(todos)
+
+    if MEMORY_FILE.exists() and MEMORY_BACKUP_FILE.parent.exists():
+        import shutil
+        shutil.copy2(MEMORY_FILE, MEMORY_BACKUP_FILE)
 
 
 @asynccontextmanager

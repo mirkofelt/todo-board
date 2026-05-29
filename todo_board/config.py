@@ -22,6 +22,9 @@ PLUGIN_STATES_FILE = DATA_DIR / "plugin_states.json"
 
 CONTEXT_LIMIT_THRESHOLD = 25 * 60  # seconds
 
+MEMORY_FILE = Path(os.environ.get("MEMORY_FILE", "/root/MEMORY.md"))
+MEMORY_BACKUP_FILE = Path(os.environ.get("MEMORY_BACKUP_FILE", "/root/.claude/MEMORY.md"))
+
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "sonnet")
 CLAUDE_MAX_TURNS = int(os.environ.get("CLAUDE_MAX_TURNS", "30"))
 CLAUDE_MAX_BUDGET_USD = os.environ.get("CLAUDE_MAX_BUDGET_USD", "")
