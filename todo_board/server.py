@@ -80,6 +80,30 @@ def _recover_orphaned_todos() -> None:
             spawn_worker(tid)
 
 
+def _prepare_for_restart() -> None:
+    """On shutdown, SIGTERM all running worker processes and reset in_progress todos
+    to pending so startup recovery can respawn them cleanly after restart."""
+    todos = load_todos()
+    changed = False
+    for t in todos:
+        if t.get("status") != "in_progress":
+            continue
+        pid_file = DATA_DIR / f"worker_{t['id']}.pid"
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text().strip())
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except (ValueError, ProcessLookupError, OSError):
+                pass
+            pid_file.unlink(missing_ok=True)
+        t["status"] = "pending"
+        t["status_updated_at"] = int(time.time())
+        t["progress"] = None
+        changed = True
+    if changed:
+        save_todos(todos)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _recover_orphaned_todos()
@@ -90,6 +114,7 @@ async def lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
+    _prepare_for_restart()
 
 
 app = FastAPI(lifespan=lifespan)
