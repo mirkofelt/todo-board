@@ -81,8 +81,10 @@ async def test_cannot_edit_in_progress_todo(app, seed_todos, read_todos):
 
 
 @pytest.mark.asyncio
-async def test_locked_todo_skipped_by_auto_advance(app, seed_todos, read_todos):
+async def test_locked_todo_skipped_by_auto_advance(app, seed_todos, read_todos, monkeypatch):
     """When a task finishes, locked pending tasks must not be auto-started."""
+    spawned = []
+    monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: spawned.append(tid))
     seed_todos([
         _todo(1, "Done task", status="done"),
         _todo(2, "Locked pending", status="pending", locked=True),
@@ -98,6 +100,7 @@ async def test_locked_todo_skipped_by_auto_advance(app, seed_todos, read_todos):
     assert by_id[2]["status"] == "pending"
     # The unlocked pending task should be picked up
     assert by_id[3]["status"] == "in_progress"
+    assert spawned == [3]
 
 
 @pytest.mark.asyncio
