@@ -1,8 +1,8 @@
-"""Async plugin runner — executes external plugin commands and posts results as news."""
+"""Async plugin runner — executes external plugin commands and stores results."""
 import asyncio
 import time
 
-from .storage import load_news, load_plugin_states, save_news, save_plugin_states
+from .storage import load_plugin_states, save_plugin_states
 
 _running: set[str] = set()
 
@@ -53,32 +53,6 @@ async def run_plugin(name: str, plugin: dict) -> None:
         "result": result[:3000],
     }
     save_plugin_states(states)
-
-    _post_news(plugin.get("name", name), status, result)
-
-
-def _post_news(display_name: str, status: str, result: str) -> None:
-    if status == "failed":
-        msg_type = "error"
-        msg = f"Plugin {display_name} failed: {result[:200]}"
-    else:
-        first_line = next((l.strip() for l in result.split("\n") if l.strip()), "")
-        first_line = first_line.replace("*", "")
-        msg = f"{display_name}: {first_line[:200]}"
-        msg_type = "info"
-
-    news = load_news()
-    new_id = max((n["id"] for n in news), default=0) + 1
-    news.insert(0, {
-        "id": new_id,
-        "type": msg_type,
-        "message": msg[:500],
-        "todo_id": None,
-        "project_id": None,
-        "created": int(time.time()),
-        "read": False,
-    })
-    save_news(news[:200])
 
 
 def is_running(name: str) -> bool:

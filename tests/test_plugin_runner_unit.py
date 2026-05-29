@@ -1,4 +1,4 @@
-"""Unit tests for plugin_runner: _post_news and run_plugin."""
+"""Unit tests for plugin_runner: run_plugin."""
 import asyncio
 import importlib
 import pytest
@@ -21,65 +21,6 @@ def _mock_proc(stdout: bytes = b"output", stderr: bytes = b"", returncode: int =
     proc.communicate = mock.AsyncMock(return_value=(stdout, stderr))
     proc.returncode = returncode
     return proc
-
-
-# ── _post_news ─────────────────────────────────────────────────────────────────
-
-def test_post_news_success_creates_info_entry(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("MyPlugin", "done", "Processed 5 records successfully")
-    news = storage.load_news()
-    assert len(news) == 1
-    assert news[0]["type"] == "info"
-    assert "MyPlugin" in news[0]["message"]
-
-
-def test_post_news_failure_creates_error_entry(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("MyPlugin", "failed", "connection refused")
-    news = storage.load_news()
-    assert len(news) == 1
-    assert news[0]["type"] == "error"
-    assert "MyPlugin" in news[0]["message"]
-
-
-def test_post_news_strips_asterisks_from_first_line(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("Checker", "done", "**Summary** of results\nMore detail")
-    news = storage.load_news()
-    assert "**" not in news[0]["message"]
-    assert "Summary" in news[0]["message"]
-
-
-def test_post_news_uses_first_non_empty_line(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("Checker", "done", "\n\nFirst real line\nSecond line")
-    news = storage.load_news()
-    assert "First real line" in news[0]["message"]
-    assert "Second line" not in news[0]["message"]
-
-
-def test_post_news_failure_includes_result_snippet(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("BadPlugin", "failed", "timeout after 30s")
-    news = storage.load_news()
-    assert "timeout after 30s" in news[0]["message"]
-
-
-def test_post_news_marks_entry_unread(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("X", "done", "all good")
-    news = storage.load_news()
-    assert news[0]["read"] is False
-
-
-def test_post_news_assigns_sequential_id(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    runner._post_news("X", "done", "first")
-    runner._post_news("Y", "done", "second")
-    news = storage.load_news()
-    ids = {n["id"] for n in news}
-    assert len(ids) == 2
 
 
 # ── run_plugin ─────────────────────────────────────────────────────────────────
@@ -126,31 +67,6 @@ async def test_run_plugin_stores_result(tmp_path, monkeypatch):
 
     states = storage.load_plugin_states()
     assert "my result output" in states["p"]["result"]
-
-
-@pytest.mark.asyncio
-async def test_run_plugin_posts_news_on_success(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    mock_exec = mock.AsyncMock(return_value=_mock_proc(b"All done!\n", b"", 0))
-
-    with mock.patch("asyncio.create_subprocess_exec", mock_exec):
-        await runner.run_plugin("notifier", {"name": "Notifier", "path": str(tmp_path), "command": ["echo"]})
-
-    news = storage.load_news()
-    assert len(news) == 1
-    assert news[0]["type"] == "info"
-
-
-@pytest.mark.asyncio
-async def test_run_plugin_posts_error_news_on_failure(tmp_path, monkeypatch):
-    runner, storage = _setup(tmp_path, monkeypatch)
-    mock_exec = mock.AsyncMock(return_value=_mock_proc(b"", b"crash", 1))
-
-    with mock.patch("asyncio.create_subprocess_exec", mock_exec):
-        await runner.run_plugin("crasher", {"name": "Crasher", "path": str(tmp_path), "command": ["false"]})
-
-    news = storage.load_news()
-    assert news[0]["type"] == "error"
 
 
 @pytest.mark.asyncio

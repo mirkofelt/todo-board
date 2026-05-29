@@ -80,61 +80,6 @@ def _build_system_prompt(rules: str, memory: str) -> str:
     return "\n\n".join(parts)
 
 
-_PLANNING_PROMPT = """\
-Analyze this task and decide if it needs to be broken into sequential sub-tasks.
-
-## Task
-{task_text}
-
-## Project
-{project_name}
-
-## Instructions
-Default to NO_BREAKDOWN. Only break down if the task has clearly distinct phases that cannot be done in one pass.
-
-- NO_BREAKDOWN if: one main action, single topic, single file or component, anything doable in one sitting
-- 2–4 SUBTASK lines only if: distinct phases that each stand alone (e.g. read/analyze → implement → test)
-
-Rules:
-- Output ONLY "NO_BREAKDOWN" or "SUBTASK:" lines — nothing else
-- Strongly prefer NO_BREAKDOWN — unnecessary splitting wastes time and loses context
-- Sub-tasks must be substantial phases, not micro-steps ("read the file" is not a sub-task)
-- "Audit current X" + "Implement X" = 2 subtasks, not 5
-- Goal is task execution, not decomposition
-"""
-
-
-def _run_planning_phase(task_text: str, project_name: str, system_prompt: str, model: str, todo_id: int) -> list:
-    """Run a lightweight Claude planning pass. Returns list of sub-task strings or []."""
-    prompt = _PLANNING_PROMPT.format(task_text=task_text, project_name=project_name)
-    cmd = [
-        CLAUDE_BIN, "-p", prompt,
-        "--dangerously-skip-permissions",
-        "--output-format", "stream-json",
-        "--verbose",
-        "--model", model,
-        "--max-turns", "3",
-    ]
-    if system_prompt:
-        cmd += ["--append-system-prompt", system_prompt]
-
-    _api("/api/statusline", {"text": f"#{todo_id} → Planning…"})
-    _, output_lines, final_result_text, _, _, _, _ = _invoke_claude(cmd, todo_id)
-
-    combined = (final_result_text or "") + "\n" + "\n".join(output_lines)
-    if "NO_BREAKDOWN" in combined:
-        return []
-
-    subtasks = []
-    for line in combined.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("SUBTASK:"):
-            desc = stripped[8:].strip()
-            if desc:
-                subtasks.append(desc)
-    return subtasks if len(subtasks) >= 2 else []
-
-
 def _build_task_prompt(
     todo_id: int,
     project_name: str,
@@ -416,45 +361,12 @@ def main() -> None:
 
     system_prompt = _build_system_prompt(rules, memory)
 
-    # Planning phase: top-level tasks (no parent_id) get auto-broken down if complex.
-    # Sub-tasks and tasks that already have questions answered skip planning.
     existing_questions = todo.get("questions", [])
     answered_questions = (
         existing_questions
         if existing_questions and all(q.get("answer") for q in existing_questions)
         else []
     )
-    is_top_level = not parent_id and not answered_questions
-
-    if is_top_level:
-        # If sub-tasks already exist (e.g. server restarted during planning), jump straight to planned.
-        existing_subtasks = [t for t in todos if t.get("parent_id") == todo_id]
-        if existing_subtasks:
-            _api(f"/api/status/{todo_id}", {"status": "planned"})
-            _api("/api/statusline", {"text": ""})
-            pid_file.unlink(missing_ok=True)
-            return
-
-        planned = _run_planning_phase(task_text, project_name, system_prompt, model, todo_id)
-        if planned:
-            prev_sub_id = None
-            for idx, desc in enumerate(planned, 1):
-                payload: dict = {
-                    "text": desc,
-                    "project_id": todo.get("project_id"),
-                    "parent_id": todo_id,
-                    "subtask_idx": idx,
-                }
-                if prev_sub_id is not None:
-                    payload["prev_task_id"] = prev_sub_id
-                if todo.get("model"):
-                    payload["model"] = todo["model"]
-                resp = _api("/api/add", payload)
-                prev_sub_id = resp.get("id")
-            _api(f"/api/status/{todo_id}", {"status": "planned"})
-            _api("/api/statusline", {"text": ""})
-            pid_file.unlink(missing_ok=True)
-            return
 
     session_key = _session_key(todo.get("project_id"))
     sessions = _load_sessions()
@@ -506,12 +418,6 @@ def main() -> None:
         questions = _parse_questions(output_lines)
         if questions:
             _api(f"/api/questions/{todo_id}", {"questions": questions})
-            _api("/api/news", {
-                "type": "warning",
-                "message": f"Task #{todo_id} has {len(questions)} question(s) — waiting for your input",
-                "todo_id": todo_id,
-                "project_id": todo.get("project_id"),
-            })
             _api("/api/statusline", {"text": ""})
             pid_file.unlink(missing_ok=True)
             return
@@ -535,35 +441,12 @@ def main() -> None:
         # No news feed entry for session limit — task auto-resumes
     elif hit_limit:
         _api(f"/api/status/{todo_id}", {"status": "context_limit", "duration_secs": duration_secs, "tokens": token_data})
-        _api("/api/news", {
-            "type": "warning",
-            "message": f"Task #{todo_id} interrupted — context limit reached",
-            "todo_id": todo_id,
-            "project_id": todo.get("project_id"),
-        })
     elif output.startswith("FAILED:") or rc != 0:
         reason = output[7:].strip() if output.startswith("FAILED:") else f"Exit code {rc}"
         _api(f"/api/status/{todo_id}", {"status": "failed", "duration_secs": duration_secs, "tokens": token_data})
         _api(f"/api/note/{todo_id}", {"note": reason[:300]})
-        _api("/api/news", {
-            "type": "error",
-            "message": f"Task #{todo_id} failed: {reason[:200]}",
-            "todo_id": todo_id,
-            "project_id": todo.get("project_id"),
-        })
     else:
         _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]})
-        _api(f"/api/news/clear-question-warning/{todo_id}", {})
-        trimmed = output.strip()
-        # Only post news if the output is substantive (not just a generic completion message)
-        if len(trimmed) > 60:
-            snippet = " ".join(trimmed.split())[:180]
-            _api("/api/news", {
-                "type": "info",
-                "message": f"Task #{todo_id}: {snippet}",
-                "todo_id": todo_id,
-                "project_id": todo.get("project_id"),
-            })
 
     _api("/api/statusline", {"text": ""})
     pid_file.unlink(missing_ok=True)

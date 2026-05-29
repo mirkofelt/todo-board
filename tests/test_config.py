@@ -119,35 +119,3 @@ def test_build_task_prompt_contains_waiting_for_answers_instructions():
     from todo_board.worker import _build_task_prompt
     result = _build_task_prompt(1, "MyProject", "Do something")
     assert "WAITING_FOR_ANSWERS" in result
-
-
-# ── github_poller._repo_slug ─────────────────────────────────────────────────
-
-def test_repo_slug_standard_url():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("https://github.com/owner/repo") == "owner/repo"
-
-
-def test_repo_slug_with_trailing_slash():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("https://github.com/owner/repo/") == "owner/repo"
-
-
-def test_repo_slug_with_subpath():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("https://github.com/owner/repo/tree/main") == "owner/repo"
-
-
-def test_repo_slug_non_github_url_returns_none():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("https://gitlab.com/owner/repo") is None
-
-
-def test_repo_slug_incomplete_path_returns_none():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("https://github.com/owner") is None
-
-
-def test_repo_slug_empty_string_returns_none():
-    from todo_board.github_poller import _repo_slug
-    assert _repo_slug("") is None

@@ -143,30 +143,3 @@ async def test_run_plugin_already_running_returns_409(app, data_dir, monkeypatch
         r = await client.post("/api/plugins/slow-plugin/run")
     assert r.status_code == 409
     assert r.json()["ok"] is False
-
-
-# ── /api/poll-releases ────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_poll_releases_returns_count(app, data_dir, monkeypatch):
-    async def mock_poll():
-        return 2
-
-    monkeypatch.setattr("todo_board.server.poll_github_releases", mock_poll)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.post("/api/poll-releases")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["ok"] is True
-    assert data["new_releases"] == 2
-
-
-@pytest.mark.asyncio
-async def test_poll_releases_zero_when_no_new(app, data_dir, monkeypatch):
-    async def mock_poll():
-        return 0
-
-    monkeypatch.setattr("todo_board.server.poll_github_releases", mock_poll)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        r = await client.post("/api/poll-releases")
-    assert r.json()["new_releases"] == 0

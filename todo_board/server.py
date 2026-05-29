@@ -10,8 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import CRYPTO_STATE_FILE, DATA_DIR, MAX_RETRIES, MEMORY_BACKUP_FILE, MEMORY_FILE, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
-from .github_poller import poll_github_releases, run_release_poller
+from .config import CRYPTO_STATE_FILE, DATA_DIR, MAX_RETRIES, MEMORY_BACKUP_FILE, MEMORY_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
 from .plugin_runner import is_running, run_plugin
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
@@ -19,7 +18,6 @@ from .storage import (
     load_counter,
     load_crypto_state,
     load_github_links,
-    load_news,
     load_plugin_states,
     load_plugins,
     load_projects,
@@ -30,7 +28,6 @@ from .storage import (
     save_counter,
     save_crypto_state,
     save_github_links,
-    save_news,
     save_projects,
     save_rules,
     save_statusline,
@@ -149,6 +146,26 @@ def _fetch_crypto_data(symbol: str = "BTC-USD") -> dict:
     return state
 
 
+def _spawn_next_pending(project_id, todos: list) -> None:
+    """Find and spawn the next pending task for a project (respects prev_task_id chain)."""
+    if project_has_active_worker(project_id, todos):
+        return
+    done_ids = {t["id"] for t in todos if t.get("status") == "done"}
+    nxt = next(
+        (t for t in reversed(todos)
+         if t.get("project_id") == project_id
+         and t.get("status") == "pending"
+         and not t.get("locked")
+         and (t.get("prev_task_id") is None or t.get("prev_task_id") in done_ids)),
+        None,
+    )
+    if nxt:
+        nxt["status"] = "in_progress"
+        nxt["status_updated_at"] = int(time.time())
+        save_todos(todos)
+        spawn_worker(nxt["id"])
+
+
 def _recover_orphaned_todos() -> None:
     """On startup, reset in_progress todos whose worker process is gone to pending,
     then kick off one worker per project that has pending work."""
@@ -172,13 +189,6 @@ def _recover_orphaned_todos() -> None:
             changed = True
     if changed:
         save_todos(todos)
-
-    # Remove news entries that reference todo IDs which no longer exist.
-    known_ids = {t["id"] for t in todos}
-    news = load_news()
-    clean_news = [n for n in news if n.get("todo_id") is None or n["todo_id"] in known_ids]
-    if len(clean_news) < len(news):
-        save_news(clean_news)
 
     todos = load_todos()
 
@@ -269,13 +279,7 @@ def _prepare_for_restart() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _recover_orphaned_todos()
-    task = asyncio.create_task(run_release_poller())
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
     _prepare_for_restart()
 
 
@@ -391,24 +395,9 @@ async def set_status(todo_id: int, request: Request):
                     spawn_worker(todo_id)
     # When a worker finishes or a task is planned, start the next pending todo in the same project
     elif status in ("done", "failed", "canceled", "planned"):
-        done_ids = {t["id"] for t in todos if t.get("status") == "done"}
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
-            pid = finished["project_id"]
-            if not project_has_active_worker(pid, todos):
-                next_todo = next(
-                    (t for t in reversed(todos)
-                     if t.get("project_id") == pid
-                     and t.get("status") == "pending"
-                     and not t.get("locked")
-                     and (t.get("prev_task_id") is None or t.get("prev_task_id") in done_ids)),
-                    None,
-                )
-                if next_todo:
-                    next_todo["status"] = "in_progress"
-                    next_todo["status_updated_at"] = int(time.time())
-                    save_todos(todos)
-                    spawn_worker(next_todo["id"])
+            _spawn_next_pending(finished["project_id"], todos)
         # Auto-complete parent when all sub-tasks have terminated (done, failed, or canceled).
         if status in ("done", "failed", "canceled"):
             finished2 = next((t for t in todos if t["id"] == todo_id), None)
@@ -422,23 +411,8 @@ async def set_status(todo_id: int, request: Request):
                         parent["done"] = True
                         parent["status_updated_at"] = int(time.time())
                         save_todos(todos)
-                        # Spawn the next pending task now that the parent has resolved
-                        p_pid = parent.get("project_id")
-                        done_ids2 = {t["id"] for t in todos if t.get("status") == "done"}
-                        if p_pid and not project_has_active_worker(p_pid, todos):
-                            nxt = next(
-                                (t for t in reversed(todos)
-                                 if t.get("project_id") == p_pid
-                                 and t.get("status") == "pending"
-                                 and not t.get("locked")
-                                 and (t.get("prev_task_id") is None or t.get("prev_task_id") in done_ids2)),
-                                None,
-                            )
-                            if nxt:
-                                nxt["status"] = "in_progress"
-                                nxt["status_updated_at"] = int(time.time())
-                                save_todos(todos)
-                                spawn_worker(nxt["id"])
+                        if parent.get("project_id"):
+                            _spawn_next_pending(parent["project_id"], todos)
     return {"ok": True}
 
 
@@ -499,8 +473,6 @@ def delete_all_done():
     orphan_ids = _collect_subtask_ids(todos, deleted_ids)
     deleted_ids |= orphan_ids
     save_todos([t for t in todos if t["id"] not in deleted_ids])
-    if deleted_ids:
-        save_news([n for n in load_news() if n.get("todo_id") not in deleted_ids])
     return {"ok": True}
 
 
@@ -515,7 +487,6 @@ def delete_todo(todo_id: int):
     # Cascade: also remove non-in_progress sub-tasks of the deleted task
     deleted_ids = {todo_id} | _collect_subtask_ids(todos, {todo_id})
     save_todos([t for t in todos if t["id"] not in deleted_ids])
-    save_news([n for n in load_news() if n.get("todo_id") not in deleted_ids])
     return {"ok": True}
 
 
@@ -555,18 +526,7 @@ def cancel_todo(todo_id: int):
 
     canceled = next((t for t in todos if t["id"] == todo_id), None)
     if canceled and canceled.get("project_id"):
-        project_id = canceled["project_id"]
-        if not project_has_active_worker(project_id, todos):
-            next_todo = next(
-                (t for t in reversed(todos)
-                 if t.get("project_id") == project_id and t.get("status") == "pending" and not t.get("locked")),
-                None,
-            )
-            if next_todo:
-                next_todo["status"] = "in_progress"
-                next_todo["status_updated_at"] = int(time.time())
-                save_todos(todos)
-                spawn_worker(next_todo["id"])
+        _spawn_next_pending(canceled["project_id"], todos)
 
     return {"ok": True}
 
@@ -663,10 +623,6 @@ async def answer_question(todo_id: int, request: Request):
     todo["questions"] = questions
     all_answered = idx >= len(questions)
     if all_answered:
-        news = load_news()
-        clean_news = [n for n in news if not (n.get("todo_id") == todo_id and n.get("type") == "warning" and "question" in n.get("message", ""))]
-        if len(clean_news) < len(news):
-            save_news(clean_news)
         if project_has_active_worker(todo.get("project_id"), todos):
             todo["status"] = "pending"
             todo["status_updated_at"] = int(time.time())
@@ -770,14 +726,10 @@ def get_stats():
 @app.get("/api/state")
 def get_state():
     mtime = TODOS_FILE.stat().st_mtime if TODOS_FILE.exists() else 0
-    news_mtime = NEWS_FILE.stat().st_mtime if NEWS_FILE.exists() else 0
-    news_unread = sum(1 for n in load_news() if not n.get("read"))
     plugin_states_mtime = PLUGIN_STATES_FILE.stat().st_mtime if PLUGIN_STATES_FILE.exists() else 0
     crypto_mtime = CRYPTO_STATE_FILE.stat().st_mtime if CRYPTO_STATE_FILE.exists() else 0
     return JSONResponse({
         "mtime": mtime,
-        "news_mtime": news_mtime,
-        "news_unread": news_unread,
         "plugin_states_mtime": plugin_states_mtime,
         "crypto_mtime": crypto_mtime,
     })
@@ -790,75 +742,6 @@ def get_version():
         _TEMPLATE.stat().st_mtime,
     )
     return JSONResponse({"version": mtime})
-
-
-@app.get("/api/news")
-def get_news():
-    return JSONResponse(load_news())
-
-
-@app.post("/api/news")
-async def create_news(request: Request):
-    body = await request.json()
-    msg_type = body.get("type", "info")
-    if msg_type not in ("info", "warning", "error"):
-        msg_type = "info"
-    message = (body.get("message") or "").strip()[:500]
-    if not message:
-        return JSONResponse({"ok": False, "error": "Message required"}, status_code=400)
-    news = load_news()
-    todo_id_val = body.get("todo_id")
-    # For error/warning entries tied to a specific task, replace any existing
-    # entry of the same type so retries don't flood the feed.
-    if todo_id_val is not None and msg_type in ("error", "warning"):
-        news = [n for n in news if not (n.get("todo_id") == todo_id_val and n.get("type") == msg_type)]
-    new_id = max((n["id"] for n in news), default=0) + 1
-    entry = {
-        "id": new_id,
-        "type": msg_type,
-        "message": message,
-        "todo_id": todo_id_val,
-        "project_id": body.get("project_id"),
-        "created": int(time.time()),
-        "read": False,
-    }
-    news.insert(0, entry)
-    # Keep last 200 news items
-    save_news(news[:200])
-    return {"ok": True, "id": new_id}
-
-
-@app.post("/api/news/mark-read")
-async def mark_news_read(request: Request):
-    body = await request.json()
-    ids = body.get("ids")  # None = mark all read
-    news = load_news()
-    for n in news:
-        if ids is None or n["id"] in ids:
-            n["read"] = True
-    save_news(news)
-    return {"ok": True}
-
-
-@app.post("/api/news/clear")
-def clear_news():
-    save_news([])
-    return {"ok": True}
-
-
-@app.post("/api/news/clear-question-warning/{todo_id}")
-def clear_question_warning(todo_id: int):
-    news = load_news()
-    clean_news = [n for n in news if not (n.get("todo_id") == todo_id and n.get("type") == "warning" and "question" in n.get("message", ""))]
-    if len(clean_news) < len(news):
-        save_news(clean_news)
-    return {"ok": True}
-
-
-@app.post("/api/poll-releases")
-async def trigger_release_poll():
-    count = await poll_github_releases()
-    return {"ok": True, "new_releases": count}
 
 
 @app.get("/api/github-links")

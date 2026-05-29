@@ -413,19 +413,3 @@ def test_worker_main_marks_failed_on_nonzero_exit(monkeypatch, tmp_path):
     assert len(failed_calls) == 1
 
 
-def test_worker_main_posts_news_for_substantial_output(monkeypatch, tmp_path):
-    monkeypatch.setenv("TODO_BOARD_DATA_DIR", str(tmp_path))
-    import todo_board.worker as worker
-    importlib.reload(worker)
-
-    (tmp_path / "todos.json").write_text(json.dumps([_make_todo(id=7)]))
-    monkeypatch.setattr(sys, "argv", ["worker.py", "7"])
-
-    long_output = "x" * 70
-    stdout = _result_event(long_output)
-    with mock.patch("subprocess.Popen", side_effect=lambda *a, **k: _mock_popen(stdout)):
-        with mock.patch("todo_board.worker._api") as mock_api:
-            worker.main()
-
-    news_calls = [c for c in mock_api.call_args_list if c[0][0] == "/api/news"]
-    assert len(news_calls) >= 1
