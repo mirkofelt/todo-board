@@ -259,12 +259,12 @@ def test_recover_cancels_pending_subtasks_of_deleted_parents(data_dir, monkeypat
     assert todos[0]["status"] == "canceled"
 
 
-# ── server: _recover_orphaned_todos: planned task auto-complete ───────────────
+# ── server: _recover_orphaned_todos: working parent auto-complete ─────────────
 
 def test_recover_completes_planned_task_when_all_subs_done(data_dir, monkeypatch):
-    """A 'planned' parent whose all sub-tasks have terminated is auto-completed."""
+    """A 'working' parent whose all sub-tasks have terminated is auto-completed."""
     seed = [
-        _todo(1, "Plan", status="planned", project_id=1),
+        _todo(1, "Plan", status="working", project_id=1),
         _todo(2, "Sub A", status="done", done=True, parent_id=1, project_id=1),
         _todo(3, "Sub B", status="failed", parent_id=1, project_id=1),
     ]
@@ -275,15 +275,15 @@ def test_recover_completes_planned_task_when_all_subs_done(data_dir, monkeypatch
 
 
 def test_recover_does_not_complete_planned_task_with_active_subs(data_dir, monkeypatch):
-    """A 'planned' parent with a pending sub-task should not be auto-completed."""
+    """A 'working' parent with a pending sub-task should not be auto-completed."""
     seed = [
-        _todo(1, "Plan", status="planned", project_id=1),
+        _todo(1, "Plan", status="working", project_id=1),
         _todo(2, "Sub A", status="done", done=True, parent_id=1, project_id=1),
         _todo(3, "Sub B", status="pending", parent_id=1, project_id=1),
     ]
     todos, _ = _run_recovery(data_dir, seed, monkeypatch)
     by_id = {t["id"]: t for t in todos}
-    assert by_id[1]["status"] == "planned"
+    assert by_id[1]["status"] == "working"
 
 
 # ── server: _recover_orphaned_todos: prev_task_id dependency ─────────────────
@@ -343,10 +343,10 @@ async def test_set_status_stores_session_limit_reset_at(app, seed_todos, read_to
 
 @pytest.mark.asyncio
 async def test_status_done_autocompletes_parent_when_all_subs_done(app, seed_todos, read_todos, monkeypatch):
-    """Marking the last pending sub-task done should auto-complete its planned parent."""
+    """Marking the last pending sub-task done should auto-complete its working parent."""
     monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: None)
     seed_todos([
-        _todo(1, "Parent Plan", status="planned", project_id=1),
+        _todo(1, "Parent Plan", status="working", project_id=1),
         _todo(2, "Sub A", status="done", done=True, parent_id=1, project_id=1),
         _todo(3, "Sub B", status="in_progress", parent_id=1, project_id=1),
     ])
@@ -361,10 +361,10 @@ async def test_status_done_autocompletes_parent_when_all_subs_done(app, seed_tod
 
 @pytest.mark.asyncio
 async def test_status_failed_autocompletes_parent_when_all_subs_terminal(app, seed_todos, read_todos, monkeypatch):
-    """When the last sub fails, the planned parent should still be auto-completed."""
+    """When the last sub fails, the working parent should still be auto-completed."""
     monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: None)
     seed_todos([
-        _todo(1, "Parent Plan", status="planned", project_id=1),
+        _todo(1, "Parent Plan", status="working", project_id=1),
         _todo(2, "Sub A", status="done", done=True, parent_id=1, project_id=1),
         _todo(3, "Sub B", status="in_progress", parent_id=1, project_id=1),
     ])
@@ -378,10 +378,10 @@ async def test_status_failed_autocompletes_parent_when_all_subs_terminal(app, se
 
 @pytest.mark.asyncio
 async def test_status_done_does_not_autocomplete_parent_with_active_subs(app, seed_todos, read_todos, monkeypatch):
-    """Parent stays 'planned' while another sub-task is still running."""
+    """Parent stays 'working' while another sub-task is still running."""
     monkeypatch.setattr("todo_board.server.spawn_worker", lambda tid: None)
     seed_todos([
-        _todo(1, "Parent Plan", status="planned", project_id=1),
+        _todo(1, "Parent Plan", status="working", project_id=1),
         _todo(2, "Sub A", status="in_progress", parent_id=1, project_id=1),
         _todo(3, "Sub B", status="in_progress", parent_id=1, project_id=1),
     ])
@@ -390,7 +390,7 @@ async def test_status_done_does_not_autocomplete_parent_with_active_subs(app, se
     assert r.json()["ok"] is True
     todos = read_todos()
     by_id = {t["id"]: t for t in todos}
-    assert by_id[1]["status"] == "planned"
+    assert by_id[1]["status"] == "working"
 
 
 # ── server: answer_question when project has active worker ───────────────────

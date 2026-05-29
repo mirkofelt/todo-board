@@ -506,7 +506,7 @@ def main() -> None:
         _is_direct, subtask_texts = _parse_plan(plan_lines)
 
         if subtask_texts:
-            # Create sequential sub-tasks and set parent to planned
+            # Create sequential sub-tasks and set parent to working
             prev_st_id = None
             for idx, st_text in enumerate(subtask_texts, start=1):
                 payload: dict = {
@@ -519,7 +519,7 @@ def main() -> None:
                     payload["prev_task_id"] = prev_st_id
                 resp = _api("/api/add", payload)
                 prev_st_id = resp.get("id")
-            _api(f"/api/status/{todo_id}", {"status": "planned"})
+            _api(f"/api/status/{todo_id}", {"status": "working"})
             _api("/api/statusline", {"text": ""})
             pid_file.unlink(missing_ok=True)
             return
@@ -642,7 +642,7 @@ def main() -> None:
         trimmed = output.strip()
         # Post news if output is substantive or files were produced
         if len(trimmed) > 60 or result_files:
-            snippet = " ".join(trimmed.split())[:180]
+            snippet = trimmed[:2000]
             news_payload: dict = {
                 "type": "info",
                 "message": f"Task #{todo_id}: {snippet}" if snippet else f"Task #{todo_id} completed — {len(result_files)} file(s) delivered",

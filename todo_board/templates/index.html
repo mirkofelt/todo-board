@@ -124,6 +124,21 @@ body {
   transition: background .15s;
 }
 .news-file-chip:hover { background: #1e3a5f; color: #93c5fd; }
+.news-message-collapsed { max-height: 4.5em; overflow: hidden; position: relative; mask-image: linear-gradient(to bottom, black 50%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%); }
+.news-expand-btn { background: none; border: none; color: #60a5fa; font-size: 11px; cursor: pointer; padding: 2px 0; margin-top: 3px; display: block; line-height: 1.4; }
+.news-expand-btn:hover { color: #93c5fd; }
+.news-result { font-size: 12px; color: #cbd5e1; }
+.news-message pre { background: #0f172a; border: 1px solid #1e293b; border-radius: 4px; padding: 8px 10px; overflow-x: auto; margin: 4px 0; font-size: 11px; white-space: pre-wrap; }
+.news-message code { background: #0f172a; padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 0.9em; }
+.news-message pre code { background: none; padding: 0; font-size: inherit; }
+.news-message h1, .news-message h2, .news-message h3 { color: #e2e8f0; margin: .5em 0 .2em; font-weight: 600; }
+.news-message h1 { font-size: 14px; } .news-message h2 { font-size: 13px; } .news-message h3 { font-size: 12px; }
+.news-message ul, .news-message ol { margin: .3em 0; padding-left: 1.5em; }
+.news-message li { margin: .1em 0; }
+.news-message p { margin: .25em 0; }
+.news-message strong { color: #f1f5f9; }
+.news-message a { color: #60a5fa; text-decoration: underline; }
+.news-message a:hover { color: #93c5fd; }
 
 h1 { font-size: 20px; color: #10b981; margin-bottom: 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .h1-stats { font-size: 11px; font-family: monospace; color: #334155; font-weight: 400; white-space: nowrap; }
@@ -234,13 +249,6 @@ button:hover { background: #059669; }
   animation: shimmer 1.4s linear infinite;
 }
 .status-badge.planning { background: #071422; border: 1px solid #3b82f6; color: #93c5fd; }
-.todo-item.planned { border-color: #0891b2; background: #061a20; }
-.todo-statusbar.planned {
-  background: linear-gradient(90deg, #0891b2 0%, #22d3ee 50%, #0891b2 100%);
-  background-size: 200% 100%;
-  animation: shimmer 2s linear infinite;
-}
-.status-badge.planned { background: #061820; border: 1px solid #0891b2; color: #67e8f9; }
 .todo-item.working { border-color: #22c55e; background: #0a1f10; }
 .todo-statusbar.working {
   background: linear-gradient(90deg, #16a34a 0%, #22c55e 40%, #16a34a 100%);
@@ -1097,6 +1105,73 @@ function updateUnreadBadge() {
   badge.style.display = count > 0 ? "" : "none";
 }
 
+function inlineMd(text) {
+  let s = esc(text);
+  s = s.replace(/`([^`<>]+)`/g, '<code>$1</code>');
+  s = s.replace(/\*\*([^*<>]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*<>]+)\*/g, '<em>$1</em>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+function renderMd(raw) {
+  if (!raw) return '';
+  // Split on fenced code blocks first
+  const segments = raw.split(/(```[\w]*\n[\s\S]*?```)/g);
+  let html = '';
+  for (let i = 0; i < segments.length; i++) {
+    if (i % 2 === 1) {
+      const m = segments[i].match(/^```(\w*)\n?([\s\S]*?)```$/);
+      html += m ? `<pre><code>${esc(m[2].replace(/\n$/, ''))}</code></pre>` : `<pre><code>${esc(segments[i])}</code></pre>`;
+      continue;
+    }
+    const lines = segments[i].split('\n');
+    let inUl = false, inOl = false;
+    for (const line of lines) {
+      const hm = line.match(/^(#{1,3})\s+(.*)/);
+      const ulm = line.match(/^[-*+]\s+(.*)/);
+      const olm = line.match(/^\d+\.\s+(.*)/);
+      if (inUl && !ulm) { html += '</ul>'; inUl = false; }
+      if (inOl && !olm) { html += '</ol>'; inOl = false; }
+      if (hm) {
+        const n = hm[1].length;
+        html += `<h${n}>${inlineMd(hm[2])}</h${n}>`;
+      } else if (ulm) {
+        if (!inUl) { html += '<ul>'; inUl = true; }
+        html += `<li>${inlineMd(ulm[1])}</li>`;
+      } else if (olm) {
+        if (!inOl) { html += '<ol>'; inOl = true; }
+        html += `<li>${inlineMd(olm[1])}</li>`;
+      } else if (!line.trim()) {
+        if (html && !html.endsWith('<br>') && !html.endsWith('>')) html += '<br>';
+      } else {
+        html += `<p>${inlineMd(line)}</p>`;
+      }
+    }
+    if (inUl) html += '</ul>';
+    if (inOl) html += '</ol>';
+  }
+  return html;
+}
+
+function toggleNewsMsg(id) {
+  const btn = document.getElementById(`news-btn-${id}`);
+  const expanded = btn.dataset.expanded === '1';
+  const msg = document.getElementById(`news-msg-${id}`);
+  const result = document.getElementById(`news-result-${id}`);
+  if (expanded) {
+    if (msg.dataset.collapsible) msg.classList.add('news-message-collapsed');
+    if (result) result.style.display = 'none';
+    btn.dataset.expanded = '0';
+    btn.textContent = btn.dataset.label;
+  } else {
+    msg.classList.remove('news-message-collapsed');
+    if (result) result.style.display = '';
+    btn.dataset.expanded = '1';
+    btn.textContent = '▲ show less';
+  }
+}
+
 function renderNews() {
   const list = document.getElementById("news-list");
   if (!newsItems.length) {
@@ -1104,6 +1179,7 @@ function renderNews() {
     return;
   }
   const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
+  const todosById = Object.fromEntries(todos.map(t => [t.id, t]));
   const icons = { info: "ℹ", warning: "⚠", error: "✗" };
   list.innerHTML = newsItems.map(n => {
     const icon = icons[n.type] || "ℹ";
@@ -1124,10 +1200,25 @@ function renderNews() {
         `<a class="news-file-chip" href="${esc(f.url)}" download="${esc(f.name)}" title="${esc(f.name)}">↓ ${esc(f.name)}</a>`
       ).join('')}</div>`;
     }
+    const linkedTodo = n.todo_id ? todosById[n.todo_id] : null;
+    const todoResult = linkedTodo && linkedTodo.result ? linkedTodo.result : null;
+    const msgLong = n.message.length > 300 || (n.message.match(/\n/g) || []).length > 3;
+    const hasExpand = msgLong || !!todoResult;
+    const btnLabel = msgLong ? '▼ show more' : '▼ show result';
+    const collapsibleAttr = msgLong ? ' data-collapsible="1"' : '';
+    const collapseCls = msgLong ? ' news-message-collapsed' : '';
+    const resultHtml = todoResult
+      ? `<div class="news-result" id="news-result-${n.id}" style="display:none"><div style="border-top:1px solid #334155;margin:6px 0"></div>${renderMd(todoResult)}</div>`
+      : '';
+    const expandBtn = hasExpand
+      ? `<button class="news-expand-btn" id="news-btn-${n.id}" onclick="toggleNewsMsg(${n.id})" data-expanded="0" data-label="${btnLabel}">${btnLabel}</button>`
+      : '';
     return `<div class="news-item type-${n.type}${readCls}">
       <span class="news-icon">${icon}</span>
       <div class="news-body">
-        <div class="news-message">${esc(n.message)}</div>
+        <div class="news-message${collapseCls}" id="news-msg-${n.id}"${collapsibleAttr}>${renderMd(n.message)}</div>
+        ${resultHtml}
+        ${expandBtn}
         <div class="news-meta">${meta}</div>
         ${filesHtml}
       </div>
@@ -1272,8 +1363,8 @@ function renderTodos() {
   // Only show top-level tasks (no parent_id) in the main lists
   const isSubtask = t => t.parent_id != null;
   // Reverse pending so "next to execute" (oldest = last in array) is at top
-  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "working" && t.status !== "planning" && t.status !== "planned" && t.status !== "canceled" && !isSubtask(t)).reverse();
-  const inProgress = todos.filter(t => (t.status === "in_progress" || t.status === "working" || t.status === "planning" || t.status === "planned") && !isSubtask(t));
+  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "working" && t.status !== "planning" && t.status !== "canceled" && !isSubtask(t)).reverse();
+  const inProgress = todos.filter(t => (t.status === "in_progress" || t.status === "working" || t.status === "planning") && !isSubtask(t));
   const done = todos.filter(t => (t.done || t.status === "canceled") && !isSubtask(t));
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
@@ -1354,9 +1445,6 @@ function progressCircleHtml(t) {
   if (t.status === 'session_limit') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#6366f1"/><rect x="7" y="7" width="3" height="8" rx="1" fill="#fff"/><rect x="12" y="7" width="3" height="8" rx="1" fill="#fff"/></svg>`;
   }
-  if (t.status === 'planned') {
-    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#0891b2"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">…</text></svg>`;
-  }
   if (t.status === 'waiting') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#7c3aed"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">?</text></svg>`;
   }
@@ -1399,7 +1487,6 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   const isFailed = t.status === "failed";
   const isContextLimit = t.status === "context_limit";
   const isSessionLimit = t.status === "session_limit";
-  const isPlanned = t.status === "planned";
   const isCanceled = t.status === "canceled";
   const isWaiting = t.status === "waiting";
   const isDone = t.done;
@@ -1458,9 +1545,6 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
     statusBadge = `<span class="status-badge context-limit">⚡ Interrupted</span>`;
   } else if (isSessionLimit) {
     statusBadge = `<span class="status-badge session-limit">⏸ Paused</span>`;
-  } else if (isPlanned) {
-    const subCount = todos.filter(x => x.parent_id === t.id).length;
-    statusBadge = `<span class="status-badge planned">⋯ Planned${subCount ? ` (${subCount})` : ""}</span>`;
   } else if (isWaiting) {
     statusBadge = `<span class="status-badge waiting">? Needs Input</span>`;
   } else if (isCanceled) {
@@ -1498,7 +1582,6 @@ function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   else if (isFailed) cls = "failed";
   else if (isContextLimit) cls = "context-limit";
   else if (isSessionLimit) cls = "session-limit";
-  else if (isPlanned) cls = "planned";
   else if (isWaiting) cls = "waiting";
   else if (isCanceled) cls = "canceled";
 
@@ -1780,7 +1863,7 @@ function updateLastActivity() {
   const labels = {
     done: "completed", in_progress: "started", failed: "failed",
     blocked: "blocked", canceled: "canceled", context_limit: "interrupted",
-    session_limit: "paused", planned: "planned", pending: "added",
+    session_limit: "paused", pending: "added",
   };
   const label = labels[latest.status] || latest.status;
   el.textContent = `Task #${latest.id} ${label} · ${relTime(latestTime)}`;

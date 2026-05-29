@@ -170,13 +170,6 @@ def _spawn_next_pending(project_id, todos: list) -> None:
     if nxt:
         nxt["status"] = "in_progress"
         nxt["status_updated_at"] = int(time.time())
-        # When a subtask starts, transition its planned parent to working
-        parent_id = nxt.get("parent_id")
-        if parent_id:
-            parent = next((t for t in todos if t["id"] == parent_id), None)
-            if parent and parent.get("status") == "planned":
-                parent["status"] = "working"
-                parent["status_updated_at"] = int(time.time())
         save_todos(todos)
         spawn_worker(nxt["id"])
 
@@ -195,14 +188,14 @@ def _recover_orphaned_todos() -> None:
         if t.get("status") not in ("in_progress", "planning", "working"):
             continue
         (DATA_DIR / f"worker_{t['id']}.pid").unlink(missing_ok=True)
-        # A working task that is a planned parent (has subtasks) resets to planned, not pending,
-        # so it stays in the in-progress column and its subtasks can be re-spawned.
+        # Working parent tasks (supervising subtasks) have no active worker process.
+        # Keep their status as "working" so subtasks can be re-spawned at startup.
         if t["id"] in parents_with_subtasks and t.get("status") == "working":
-            t["status"] = "planned"
+            t["progress"] = None
         else:
             t["status"] = "pending"
+            t["progress"] = None
         t["status_updated_at"] = int(time.time())
-        t["progress"] = None
         changed = True
     if changed:
         save_todos(todos)
@@ -249,12 +242,12 @@ def _recover_orphaned_todos() -> None:
         save_todos(todos)
         todos = load_todos()
 
-    # Auto-complete "planned"/"working" parent tasks whose sub-tasks have all terminated.
+    # Auto-complete "working" parent tasks whose sub-tasks have all terminated.
     # This handles cases where sub-tasks finished without triggering the real-time auto-complete
     # (e.g. sub-tasks lacked parent_id, or some sub-tasks failed).
     plan_changed = False
     for t in todos:
-        if t.get("status") in ("planned", "working") and t["id"] in parents_with_subtasks:
+        if t.get("status") == "working" and t["id"] in parents_with_subtasks:
             active_subs = [
                 s for s in todos
                 if s.get("parent_id") == t["id"] and s.get("status") in ("pending", "in_progress", "planning", "working")
@@ -307,15 +300,15 @@ def _prepare_for_restart() -> None:
             except (ValueError, ProcessLookupError, OSError):
                 pass
             pid_file.unlink(missing_ok=True)
-        # Planned parents in working state have no active worker — reset to planned so they
-        # remain visible in the in-progress column and subtasks get re-spawned on startup.
+        # Working parent tasks supervising subtasks have no actual worker process — keep
+        # their status so subtasks can be re-spawned at the next startup.
         if t["id"] in parents_with_subtasks and t.get("status") == "working":
-            t["status"] = "planned"
+            t["progress"] = None  # Keep status as "working"
         else:
             t["status"] = "pending"
+            # Keep progress text — shows where the task was interrupted; will be
+            # overwritten once the worker resumes and emits its first STATUS line.
         t["status_updated_at"] = int(time.time())
-        # Keep progress text — shows where the task was interrupted; will be
-        # overwritten once the worker resumes and emits its first STATUS line.
         changed = True
     if changed:
         save_todos(todos)
@@ -408,7 +401,7 @@ async def set_status(todo_id: int, request: Request):
             t["status"] = status
             t["status_updated_at"] = int(time.time())
             t["done"] = status == "done"
-            if status in ("done", "failed", "blocked", "pending", "session_limit", "planned", "planning"):
+            if status in ("done", "failed", "blocked", "pending", "session_limit", "planning"):
                 t["progress"] = None
             if duration_secs is not None:
                 t["duration_secs"] = int(duration_secs)
@@ -451,8 +444,8 @@ async def set_status(todo_id: int, request: Request):
                 save_todos(todos)
                 if not other_active:
                     spawn_worker(todo_id)
-    # When a worker finishes or a task is planned, start the next pending todo in the same project
-    elif status in ("done", "failed", "canceled", "planned"):
+    # When a worker finishes or a parent task goes working, start the next pending todo in the same project
+    elif status in ("done", "failed", "canceled", "working"):
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
             _spawn_next_pending(finished["project_id"], todos)
@@ -464,7 +457,7 @@ async def set_status(todo_id: int, request: Request):
                 siblings = [t for t in todos if t.get("parent_id") == parent_id_val]
                 if siblings and not any(s.get("status") in ("pending", "in_progress", "planning", "working") for s in siblings):
                     parent = next((t for t in todos if t["id"] == parent_id_val), None)
-                    if parent and parent.get("status") in ("planned", "working"):
+                    if parent and parent.get("status") == "working":
                         parent["status"] = "done"
                         parent["done"] = True
                         parent["status_updated_at"] = int(time.time())
@@ -824,7 +817,7 @@ async def create_news(request: Request):
     msg_type = body.get("type", "info")
     if msg_type not in ("info", "warning", "error"):
         msg_type = "info"
-    message = (body.get("message") or "").strip()[:500]
+    message = (body.get("message") or "").strip()[:3000]
     if not message:
         return JSONResponse({"ok": False, "error": "Message required"}, status_code=400)
     news = load_news()
