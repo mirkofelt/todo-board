@@ -215,6 +215,12 @@ button:hover { background: #059669; }
   animation: shimmer 2s linear infinite;
 }
 .status-badge.waiting { background: #1e0a3c; border: 1px solid #7c3aed; color: #a78bfa; }
+.todo-item.session-limit { border-color: #6366f1; background: #0f0e1e; }
+.todo-statusbar.session-limit { background: #6366f1; }
+.status-badge.session-limit { background: #1a1040; border: 1px solid #6366f1; color: #a5b4fc; }
+.todo-item.planned { border-color: #0891b2; background: #061a20; }
+.todo-statusbar.planned { background: #0891b2; }
+.status-badge.planned { background: #061820; border: 1px solid #0891b2; color: #67e8f9; }
 
 .question-block {
   margin-top: 10px; padding: 12px 14px;
@@ -292,6 +298,13 @@ button:hover { background: #059669; }
 .chain-badge { font-size: 10px; color: #64748b; font-family: monospace; background: #0f172a; border: 1px solid #2d3f57; border-radius: 10px; padding: 2px 7px; letter-spacing: .03em; }
 .meta-time { font-size: 11px; color: #334155; margin-left: auto; }
 .meta-stats { font-size: 10px; color: #334155; font-family: monospace; }
+.subtask-list { margin-top: 8px; border-top: 1px solid #1e293b; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.subtask-row { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; color: #64748b; line-height: 1.4; }
+.subtask-row.st-done { color: #334155; text-decoration: line-through; }
+.subtask-row.st-active { color: #e2e8f0; }
+.subtask-row.st-failed { color: #ef4444; }
+.subtask-icon { flex-shrink: 0; margin-top: 1px; font-size: 10px; width: 14px; text-align: center; }
+.subtask-progress { font-size: 11px; color: #94a3b8; margin-top: 1px; }
 .todo-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: flex-start; padding-top: 1px; }
 .empty { color: #334155; font-size: 13px; padding: 8px 0; }
 .todo-circle { flex-shrink: 0; margin-top: 3px; }
@@ -364,12 +377,156 @@ details[open] summary { margin-bottom: 14px; }
 }
 .modal-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
 .modal-subtitle { font-size: 11px; color: #475569; margin-bottom: 16px; }
-.breakdown-item {
-  display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start;
-}
-.breakdown-item textarea { flex: 1; min-height: 52px; resize: vertical; font-size: 13px; }
-.breakdown-item .btn-icon { margin-top: 6px; flex-shrink: 0; }
 .modal-actions { display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; }
+
+/* ── Crypto Forecast tab ──────────────────────────────────────────── */
+.crypto-container { max-width: 860px; margin: 0 auto; padding: 28px 16px; }
+.crypto-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+}
+.crypto-price {
+  font-size: 32px; font-weight: 700; color: #58a6ff; font-family: monospace;
+  letter-spacing: -1px;
+}
+.crypto-price-meta {
+  font-size: 12px; color: #475569; font-family: monospace; margin-top: 2px;
+}
+.crypto-refresh-btn {
+  background: #1e293b; border: 1px solid #334155; color: #64748b;
+  border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  transition: border-color .15s, color .15s;
+}
+.crypto-refresh-btn:hover { border-color: #58a6ff; color: #58a6ff; background: #1e293b; }
+.crypto-refresh-btn:disabled { opacity: .45; cursor: not-allowed; }
+.crypto-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;
+}
+@media (max-width: 600px) { .crypto-grid { grid-template-columns: 1fr; } }
+.crypto-card {
+  background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+  padding: 16px 18px;
+}
+.crypto-card-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+  color: #475569; font-weight: 600; margin-bottom: 10px;
+}
+.crypto-scenario-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.crypto-scenario-name {
+  font-size: 12px; font-weight: 600; width: 36px; flex-shrink: 0;
+}
+.crypto-scenario-bar-wrap {
+  flex: 1; background: #0f172a; border-radius: 4px; height: 6px; overflow: hidden;
+}
+.crypto-scenario-bar { height: 100%; border-radius: 4px; transition: width .4s; }
+.crypto-scenario-price {
+  font-size: 12px; font-family: monospace; color: #e2e8f0;
+  white-space: nowrap; min-width: 90px; text-align: right;
+}
+.crypto-scenario-pct {
+  font-size: 11px; color: #475569; min-width: 34px; text-align: right;
+}
+.crypto-macro-row {
+  display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+}
+.crypto-macro-item { flex: 1; min-width: 100px; }
+.crypto-macro-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: #475569; margin-bottom: 4px;
+}
+.crypto-macro-value {
+  font-size: 22px; font-weight: 700; font-family: monospace;
+}
+.crypto-macro-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+.crypto-halving-bar-wrap {
+  background: #0f172a; border-radius: 6px; height: 8px;
+  overflow: hidden; margin: 10px 0 6px;
+}
+.crypto-halving-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #f0883e, #fbbf24);
+  border-radius: 6px; transition: width .4s;
+}
+.crypto-halving-meta {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #64748b; font-family: monospace;
+}
+.crypto-events-list { list-style: none; }
+.crypto-event-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid #1e293b; font-size: 12px;
+}
+.crypto-event-item:last-child { border-bottom: none; }
+.crypto-event-badge {
+  font-size: 10px; font-weight: 600; border-radius: 4px;
+  padding: 2px 6px; flex-shrink: 0; letter-spacing: .03em;
+}
+.badge-fomc { background: #2d1e4a; color: #bc8cff; }
+.badge-cpi  { background: #0f2233; color: #79c0ff; }
+.badge-halving { background: #2a1e0a; color: #f0883e; }
+.badge-other { background: #1e293b; color: #8b949e; }
+.crypto-event-label { flex: 1; color: #cbd5e1; }
+.crypto-event-date { font-family: monospace; color: #475569; font-size: 11px; }
+.crypto-news-list { list-style: none; }
+.crypto-news-item {
+  display: flex; gap: 10px; padding: 9px 0;
+  border-bottom: 1px solid #1e293b; align-items: flex-start;
+}
+.crypto-news-item:last-child { border-bottom: none; }
+.crypto-news-score {
+  font-size: 10px; font-weight: 700; font-family: monospace;
+  border-radius: 4px; padding: 2px 5px; flex-shrink: 0;
+  min-width: 36px; text-align: center; margin-top: 1px;
+}
+.score-bull { background: #0d2818; color: #3fb950; }
+.score-bear { background: #2a0e0e; color: #f87171; }
+.score-neutral { background: #1e293b; color: #64748b; }
+.crypto-news-body { flex: 1; min-width: 0; }
+.crypto-news-title {
+  font-size: 12px; color: #e2e8f0; line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.crypto-news-title a { color: inherit; text-decoration: none; }
+.crypto-news-title a:hover { text-decoration: underline; color: #58a6ff; }
+.crypto-news-meta { font-size: 10px; color: #475569; margin-top: 4px; }
+.crypto-signal-chip {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  border-radius: 10px; padding: 2px 8px; letter-spacing: .03em;
+}
+.chip-very-bullish { background: #0d2818; color: #3fb950; }
+.chip-bullish      { background: #0f2a1a; color: #34d399; }
+.chip-neutral      { background: #1e293b; color: #64748b; }
+.chip-bearish      { background: #2a1400; color: #f0883e; }
+.chip-very-bearish { background: #2a0e0e; color: #f87171; }
+.crypto-chart-section { margin-top: 20px; }
+.crypto-chart-img {
+  width: 100%; border-radius: 10px; border: 1px solid #334155;
+  display: block;
+}
+.crypto-empty {
+  color: #475569; font-size: 13px; padding: 40px 0; text-align: center;
+}
+.crypto-error {
+  background: #1a0e0e; border: 1px solid #7f1d1d; border-radius: 8px;
+  padding: 14px 16px; color: #f87171; font-size: 12px; font-family: monospace;
+  white-space: pre-wrap; word-break: break-all;
+}
+.crypto-wave-badge {
+  display: inline-block; background: #f0883e22; border: 1px solid #f0883e;
+  color: #f0883e; font-size: 11px; font-weight: 700; border-radius: 6px;
+  padding: 2px 8px; font-family: monospace; margin-left: 8px;
+}
+.crypto-last-updated {
+  font-size: 11px; color: #334155; font-family: monospace; margin-top: 3px;
+}
+.crypto-full-news-section {
+  background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+  padding: 16px 18px; margin-top: 20px;
+}
 </style>
 </head>
 <body>
@@ -379,6 +536,7 @@ details[open] summary { margin-bottom: 14px; }
     News Feed
     <span class="unread-badge" id="unread-badge" style="display:none">0</span>
   </button>
+  <button class="tab-btn" id="tab-btn-crypto" onclick="switchTab('crypto')">Crypto Forecast</button>
 </nav>
 <div id="tab-todos">
 <div class="layout">
@@ -407,7 +565,6 @@ details[open] summary { margin-bottom: 14px; }
       <div id="new-project-wrap">
         <input type="text" id="new-project-name" placeholder="Project name…">
       </div>
-      <button id="breakdown-btn" class="btn-ghost">Break down ↓</button>
       <button id="add-btn">Add</button>
     </div>
   </div>
@@ -465,6 +622,79 @@ details[open] summary { margin-bottom: 14px; }
   </div>
 </div>
 
+<div id="tab-crypto" style="display:none">
+  <div class="crypto-container">
+    <div class="crypto-header">
+      <div>
+        <div style="display:flex;align-items:baseline;gap:4px">
+          <span class="crypto-price" id="crypto-price">—</span>
+          <span id="crypto-symbol" style="font-size:14px;color:#475569;font-family:monospace"></span>
+          <span class="crypto-wave-badge" id="crypto-wave-badge" style="display:none"></span>
+        </div>
+        <div class="crypto-last-updated" id="crypto-last-updated"></div>
+      </div>
+      <button class="crypto-refresh-btn" id="crypto-refresh-btn" onclick="triggerCryptoRefresh()">
+        <svg id="crypto-refresh-icon" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13.7 2.3A7.5 7.5 0 1 0 15 8"/><polyline points="11 2 14 2 14 5"/></svg>
+        Refresh
+      </button>
+    </div>
+
+    <div id="crypto-error" style="display:none" class="crypto-error"></div>
+
+    <div id="crypto-content" style="display:none">
+      <!-- Row 1: Scenarios + Halving -->
+      <div class="crypto-grid">
+        <div class="crypto-card">
+          <div class="crypto-card-title">Price Scenarios</div>
+          <div id="crypto-scenarios"></div>
+        </div>
+        <div class="crypto-card">
+          <div class="crypto-card-title">Halving Cycle</div>
+          <div id="crypto-halving"></div>
+        </div>
+      </div>
+
+      <!-- Row 2: Macro + Events -->
+      <div class="crypto-grid">
+        <div class="crypto-card">
+          <div class="crypto-card-title">Macro Signals</div>
+          <div id="crypto-macro"></div>
+        </div>
+        <div class="crypto-card">
+          <div class="crypto-card-title">Upcoming Events</div>
+          <ul class="crypto-events-list" id="crypto-events"></ul>
+        </div>
+      </div>
+
+      <!-- Row 3: Top Headlines (compact) -->
+      <div class="crypto-card" style="margin-bottom:20px">
+        <div class="crypto-card-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>News Sentiment</span>
+          <span id="crypto-news-signal-chip"></span>
+        </div>
+        <ul class="crypto-news-list" id="crypto-top-news"></ul>
+      </div>
+
+      <!-- Row 4: All recent news -->
+      <div class="crypto-full-news-section">
+        <div class="crypto-card-title" style="margin-bottom:12px">All Recent News (30)</div>
+        <ul class="crypto-news-list" id="crypto-all-news"></ul>
+      </div>
+
+      <!-- Row 5: Chart -->
+      <div class="crypto-chart-section">
+        <div class="crypto-card-title" style="margin-bottom:10px">Elliott Wave Chart</div>
+        <img class="crypto-chart-img" id="crypto-chart-img" src="" alt="BTC Outlook Chart" style="display:none">
+        <div id="crypto-chart-placeholder" style="color:#334155;font-size:12px">Chart not yet generated. Hit Refresh.</div>
+      </div>
+    </div>
+
+    <div id="crypto-empty" class="crypto-empty">
+      No data yet. Click <strong>Refresh</strong> to fetch market data.
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="plugin-result-modal">
   <div class="modal">
     <div class="modal-title" id="plugin-result-title">Plugin Result</div>
@@ -476,17 +706,6 @@ details[open] summary { margin-bottom: 14px; }
   </div>
 </div>
 
-<div class="modal-overlay" id="breakdown-modal">
-  <div class="modal">
-    <div class="modal-title">Break down into subtasks</div>
-    <div class="modal-subtitle">Edit or remove tasks, then approve to queue them all.</div>
-    <div id="breakdown-tasks-list"></div>
-    <div class="modal-actions">
-      <button class="btn-ghost btn-sm" id="breakdown-cancel-btn">Cancel</button>
-      <button id="approve-btn">Approve All</button>
-    </div>
-  </div>
-</div>
 
 <script>
 let projects = [];
@@ -591,14 +810,252 @@ function switchTab(tab) {
   activeTab = tab;
   document.getElementById("tab-todos").style.display = tab === "todos" ? "" : "none";
   document.getElementById("tab-news").style.display = tab === "news" ? "" : "none";
+  document.getElementById("tab-crypto").style.display = tab === "crypto" ? "" : "none";
   document.getElementById("tab-btn-todos").classList.toggle("active", tab === "todos");
   document.getElementById("tab-btn-news").classList.toggle("active", tab === "news");
+  document.getElementById("tab-btn-crypto").classList.toggle("active", tab === "crypto");
   if (tab === "news") {
     renderNews();
+  }
+  if (tab === "crypto") {
+    renderCrypto();
   }
   if (prev === "news" && tab !== "news") {
     markAllRead();
   }
+}
+
+// ── Crypto Forecast ──────────────────────────────────────────────────────────
+
+let cryptoData = null;
+let cryptoRefreshing = false;
+
+const _signalColors = {
+  very_bullish: "#3fb950", bullish: "#34d399",
+  neutral: "#64748b",
+  bearish: "#f0883e", very_bearish: "#f87171",
+};
+const _signalChipClass = {
+  very_bullish: "chip-very-bullish", bullish: "chip-bullish",
+  neutral: "chip-neutral",
+  bearish: "chip-bearish", very_bearish: "chip-very-bearish",
+  slightly_bullish: "chip-bullish", slightly_bearish: "chip-bearish",
+};
+
+function _signalLabel(s) {
+  return (s || "neutral").replace(/_/g, " ");
+}
+
+function _fmtPrice(n) {
+  return "$" + Number(n).toLocaleString("en-US", {maximumFractionDigits: 0});
+}
+
+function _relDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = Math.round((d - now) / 86400000);
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  if (diff > 0) return `in ${diff}d`;
+  return `${-diff}d ago`;
+}
+
+function renderCrypto() {
+  const empty = document.getElementById("crypto-empty");
+  const content = document.getElementById("crypto-content");
+  const errorEl = document.getElementById("crypto-error");
+
+  if (!cryptoData || !cryptoData.last_updated) {
+    empty.style.display = "";
+    content.style.display = "none";
+    errorEl.style.display = "none";
+    return;
+  }
+
+  empty.style.display = "none";
+
+  if (cryptoData.error) {
+    errorEl.textContent = "Error: " + cryptoData.error;
+    errorEl.style.display = "";
+    content.style.display = "none";
+    return;
+  }
+
+  errorEl.style.display = "none";
+  content.style.display = "";
+
+  // Header
+  document.getElementById("crypto-price").textContent = _fmtPrice(cryptoData.price);
+  document.getElementById("crypto-symbol").textContent = cryptoData.symbol || "BTC-USD";
+  const waveBadge = document.getElementById("crypto-wave-badge");
+  if (cryptoData.wave_label && cryptoData.wave_label !== "?") {
+    waveBadge.textContent = "Wave " + cryptoData.wave_label;
+    waveBadge.style.display = "";
+  } else {
+    waveBadge.style.display = "none";
+  }
+  const lu = cryptoData.last_updated
+    ? "Updated " + relTime(cryptoData.last_updated)
+    : "";
+  document.getElementById("crypto-last-updated").textContent = lu;
+
+  // Scenarios
+  const scenEl = document.getElementById("crypto-scenarios");
+  if (cryptoData.scenarios && cryptoData.scenarios.length) {
+    scenEl.innerHTML = cryptoData.scenarios.map(s => {
+      const pct = Math.round(s.probability * 100);
+      return `<div class="crypto-scenario-row">
+        <span class="crypto-scenario-name" style="color:${esc(s.color)}">${esc(s.name)}</span>
+        <div class="crypto-scenario-bar-wrap">
+          <div class="crypto-scenario-bar" style="width:${pct}%;background:${esc(s.color)}"></div>
+        </div>
+        <span class="crypto-scenario-price">${_fmtPrice(s.price_target)}</span>
+        <span class="crypto-scenario-pct">${pct}%</span>
+      </div>
+      <div style="font-size:10px;color:#475569;margin:-6px 0 10px 46px">${esc(s.time_horizon)} · ${esc(s.triggers[0] || "")}</div>`;
+    }).join("");
+  }
+
+  // Halving
+  const halvEl = document.getElementById("crypto-halving");
+  if (cryptoData.halving) {
+    const h = cryptoData.halving;
+    const daysSince = h.days_since_halving || 0;
+    const daysUntil = h.days_until_next_halving || 1458;
+    const total = daysSince + daysUntil;
+    const pct = total > 0 ? Math.min(100, Math.round(daysSince / total * 100)) : 0;
+    const sig = h.halving_signal || "neutral";
+    halvEl.innerHTML = `
+      <div style="font-size:13px;color:#e2e8f0;margin-bottom:4px">${esc(h.cycle_phase || "")}</div>
+      <div class="crypto-halving-bar-wrap">
+        <div class="crypto-halving-bar" style="width:${pct}%"></div>
+      </div>
+      <div class="crypto-halving-meta">
+        <span>${esc(h.last_halving || "")} (${daysSince}d ago)</span>
+        <span style="color:${_signalColors[sig] || '#64748b'}">${_signalLabel(sig)}</span>
+        <span>${esc(h.next_halving || "")} (${daysUntil}d)</span>
+      </div>`;
+  }
+
+  // Macro
+  const macroEl = document.getElementById("crypto-macro");
+  if (cryptoData.macro) {
+    const fg = cryptoData.macro.fear_greed || {};
+    const dom = cryptoData.macro.btc_dominance || {};
+    const fgColor = _signalColors[fg.signal] || "#64748b";
+    const domColor = _signalColors[dom.signal] || "#64748b";
+    macroEl.innerHTML = `<div class="crypto-macro-row">
+      <div class="crypto-macro-item">
+        <div class="crypto-macro-label">Fear &amp; Greed</div>
+        <div class="crypto-macro-value" style="color:${fgColor}">${fg.value != null ? fg.value : "—"}</div>
+        <div class="crypto-macro-sub">${esc(fg.label || "")} · ${_signalLabel(fg.signal)}</div>
+      </div>
+      <div class="crypto-macro-item">
+        <div class="crypto-macro-label">BTC Dominance</div>
+        <div class="crypto-macro-value" style="color:${domColor}">${dom.value != null ? dom.value + "%" : "—"}</div>
+        <div class="crypto-macro-sub">${_signalLabel(dom.signal)}</div>
+      </div>
+    </div>`;
+  }
+
+  // Events
+  const eventsEl = document.getElementById("crypto-events");
+  if (cryptoData.upcoming_events && cryptoData.upcoming_events.length) {
+    eventsEl.innerHTML = cryptoData.upcoming_events.slice(0, 6).map(e => {
+      const badgeClass = "badge-" + (e.category || "other");
+      return `<li class="crypto-event-item">
+        <span class="crypto-event-badge ${badgeClass}">${esc(e.category.toUpperCase())}</span>
+        <span class="crypto-event-label">${esc(e.label)}</span>
+        <span class="crypto-event-date">${esc(e.date.slice(5))} <span style="color:#334155">(${_relDate(e.date)})</span></span>
+      </li>`;
+    }).join("");
+  } else {
+    eventsEl.innerHTML = `<li style="color:#475569;font-size:12px">No upcoming events</li>`;
+  }
+
+  // News sentiment chip + top headlines
+  const news = cryptoData.news || {};
+  const chipEl = document.getElementById("crypto-news-signal-chip");
+  const sig = news.signal || "neutral";
+  chipEl.innerHTML = `<span class="crypto-signal-chip ${_signalChipClass[sig] || 'chip-neutral'}">${_signalLabel(sig)}</span>
+    <span style="font-size:10px;color:#475569;margin-left:6px">${news.count || 0} articles · score ${(news.score || 0).toFixed(2)}</span>`;
+
+  function _newsItemHtml(n) {
+    const score = n.sentiment_score || n.score || 0;
+    const scoreCls = score > 0.3 ? "score-bull" : score < -0.3 ? "score-bear" : "score-neutral";
+    const sign = score > 0 ? "+" : "";
+    const titleHtml = n.url
+      ? `<a href="${esc(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>`
+      : esc(n.title);
+    const pub = n.published ? new Date(n.published) : null;
+    const pubStr = pub ? pub.toLocaleDateString("de-DE", {day:"2-digit",month:"2-digit"}) : "";
+    return `<li class="crypto-news-item">
+      <span class="crypto-news-score ${scoreCls}">${sign}${score.toFixed(1)}</span>
+      <div class="crypto-news-body">
+        <div class="crypto-news-title">${titleHtml}</div>
+        <div class="crypto-news-meta">${esc(n.source || "")}${pubStr ? " · " + pubStr : ""}</div>
+      </div>
+    </li>`;
+  }
+
+  const topNews = document.getElementById("crypto-top-news");
+  const topItems = news.top_headlines || [];
+  if (topItems.length) {
+    topNews.innerHTML = topItems.map(_newsItemHtml).join("");
+  } else {
+    topNews.innerHTML = `<li style="color:#475569;font-size:12px;padding:8px 0">No headlines yet</li>`;
+  }
+
+  const allNews = document.getElementById("crypto-all-news");
+  const allItems = (news.items || []).filter(n => n.is_relevant);
+  if (allItems.length) {
+    allNews.innerHTML = allItems.map(_newsItemHtml).join("");
+  } else {
+    allNews.innerHTML = `<li style="color:#475569;font-size:12px;padding:8px 0">No relevant news fetched</li>`;
+  }
+
+  // Chart
+  const img = document.getElementById("crypto-chart-img");
+  const placeholder = document.getElementById("crypto-chart-placeholder");
+  if (cryptoData.chart_path) {
+    img.src = "/api/crypto/chart?t=" + (cryptoData.last_updated || Date.now());
+    img.style.display = "";
+    placeholder.style.display = "none";
+  } else {
+    img.style.display = "none";
+    placeholder.style.display = "";
+  }
+}
+
+async function loadCrypto() {
+  const data = await fetch("/api/crypto/data").then(r => r.json()).catch(() => null);
+  if (data) {
+    cryptoData = data;
+    if (activeTab === "crypto") renderCrypto();
+  }
+}
+
+async function triggerCryptoRefresh() {
+  if (cryptoRefreshing) return;
+  cryptoRefreshing = true;
+  const btn = document.getElementById("crypto-refresh-btn");
+  const icon = document.getElementById("crypto-refresh-icon");
+  btn.disabled = true;
+  icon.style.animation = "btn-spin 0.75s linear infinite";
+  icon.style.transformBox = "fill-box";
+  icon.style.transformOrigin = "center";
+  const r = await fetch("/api/crypto/refresh", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({}),
+  }).catch(() => null);
+  if (!r || !r.ok) {
+    cryptoRefreshing = false;
+    btn.disabled = false;
+    icon.style.animation = "";
+  }
+  // Poll until crypto_mtime changes (background task)
 }
 
 // ── News Feed ────────────────────────────────────────────────────────────────
@@ -766,20 +1223,31 @@ function renderTodos() {
   });
   const projMap = Object.fromEntries(projects.map(p => [p.id, p.name]));
   const chainMap = buildChainMap(todos);
+
+  // Build subtask map: parent_id → sorted subtasks
+  const subtasksByParent = {};
+  todos.filter(t => t.parent_id != null).forEach(t => {
+    if (!subtasksByParent[t.parent_id]) subtasksByParent[t.parent_id] = [];
+    subtasksByParent[t.parent_id].push(t);
+  });
+  Object.values(subtasksByParent).forEach(arr => arr.sort((a, b) => (a.subtask_idx ?? 0) - (b.subtask_idx ?? 0)));
+
+  // Only show top-level tasks (no parent_id) in the main lists
+  const isSubtask = t => t.parent_id != null;
   // Reverse pending so "next to execute" (oldest = last in array) is at top
-  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled").reverse();
-  const inProgress = todos.filter(t => t.status === "in_progress");
-  const done = todos.filter(t => t.done || t.status === "canceled");
+  const pending = todos.filter(t => !t.done && t.status !== "in_progress" && t.status !== "canceled" && !isSubtask(t)).reverse();
+  const inProgress = todos.filter(t => t.status === "in_progress" && !isSubtask(t));
+  const done = todos.filter(t => (t.done || t.status === "canceled") && !isSubtask(t));
 
   document.getElementById("pending-section").style.display = pending.length ? "" : "none";
   document.getElementById("pending-label").textContent = pending.length ? `Pending (${pending.length})` : "Pending";
   document.getElementById("pending-list").innerHTML =
-    pending.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
+    pending.map(t => todoHtml(t, projMap, chainMap, subtasksByParent)).join("") || "";
 
   document.getElementById("inprogress-section").style.display = inProgress.length ? "" : "none";
   document.getElementById("inprogress-label").textContent = inProgress.length ? `In Progress (${inProgress.length})` : "In Progress";
   document.getElementById("inprogress-list").innerHTML =
-    inProgress.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
+    inProgress.map(t => todoHtml(t, projMap, chainMap, subtasksByParent)).join("") || "";
 
   const recentDone = done.slice(0, 3);
   const olderDone = done.slice(3);
@@ -787,12 +1255,12 @@ function renderTodos() {
   document.getElementById("done-section").style.display = done.length ? "" : "none";
   document.getElementById("done-label").textContent = done.length ? `Done (${done.length})` : "Done";
   document.getElementById("done-list").innerHTML =
-    recentDone.map(t => todoHtml(t, projMap, chainMap)).join("") || "";
+    recentDone.map(t => todoHtml(t, projMap, chainMap, subtasksByParent)).join("") || "";
 
   const doneOverflow = document.getElementById("done-overflow");
   if (olderDone.length > 0) {
     document.getElementById("done-overflow-list").innerHTML =
-      olderDone.map(t => todoHtml(t, projMap, chainMap)).join("");
+      olderDone.map(t => todoHtml(t, projMap, chainMap, subtasksByParent)).join("");
     document.getElementById("done-overflow-summary").textContent =
       `${olderDone.length} more…`;
     doneOverflow.style.display = "";
@@ -846,6 +1314,12 @@ function progressCircleHtml(t) {
   if (t.status === 'context_limit') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#f59e0b"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">!</text></svg>`;
   }
+  if (t.status === 'session_limit') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#6366f1"/><rect x="7" y="7" width="3" height="8" rx="1" fill="#fff"/><rect x="12" y="7" width="3" height="8" rx="1" fill="#fff"/></svg>`;
+  }
+  if (t.status === 'planned') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#0891b2"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="9" fill="#fff" font-weight="bold">…</text></svg>`;
+  }
   if (t.status === 'waiting') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#7c3aed"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">?</text></svg>`;
   }
@@ -861,24 +1335,41 @@ function progressCircleHtml(t) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 22 22" class="todo-circle" aria-hidden="true"><g transform="translate(11,11)"><path d="M-5,-8 L5,-8 L5,-5 L0,0 L5,5 L5,8 L-5,8 L-5,5 L0,0 L-5,-5 Z" fill="none" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/><path d="M-5,8 L5,8 L5,5 L0,0 L-5,5 Z" fill="#334155"/><line x1="-5" y1="-8" x2="5" y2="-8" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/><line x1="-5" y1="8" x2="5" y2="8" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/></g></svg>`;
 }
 
-function todoHtml(t, projMap, chainMap) {
+function subtaskListHtml(subtasks) {
+  if (!subtasks || !subtasks.length) return "";
+  const rows = subtasks.map(s => {
+    const isDone = s.done || s.status === "done";
+    const isFailed = s.status === "failed";
+    const isActive = s.status === "in_progress";
+    const cls = isDone ? "st-done" : isFailed ? "st-failed" : isActive ? "st-active" : "";
+    const icon = isDone ? "✓" : isFailed ? "✗" : isActive ? "▶" : "·";
+    const prog = isActive && s.progress ? `<div class="subtask-progress">↳ ${esc(s.progress)}</div>` : "";
+    return `<div class="subtask-row ${cls}"><span class="subtask-icon">${icon}</span><div><div>${esc(s.text)}</div>${prog}</div></div>`;
+  }).join("");
+  return `<div class="subtask-list">${rows}</div>`;
+}
+
+function todoHtml(t, projMap, chainMap, subtasksByParent = {}) {
   const inProgress = t.status === "in_progress";
   const isBlocked = t.status === "blocked";
   const isFailed = t.status === "failed";
   const isContextLimit = t.status === "context_limit";
+  const isSessionLimit = t.status === "session_limit";
+  const isPlanned = t.status === "planned";
   const isCanceled = t.status === "canceled";
   const isWaiting = t.status === "waiting";
   const isDone = t.done;
   const isLocked = !!t.locked;
 
-  const idBadge = `<span style="color:#475569;font-size:11px;font-family:monospace;flex-shrink:0">#${t.id}</span>`;
+  const idLabel = t.parent_id ? `#${t.parent_id}-${t.subtask_idx ?? "?"}` : `#${t.id}`;
+  const idBadge = `<span style="color:#475569;font-size:11px;font-family:monospace;flex-shrink:0">${idLabel}</span>`;
 
   const badge = t.project_id && projMap[t.project_id]
     ? `<span class="badge">${esc(projMap[t.project_id])}</span>` : "";
 
   const chain = chainMap && chainMap[t.id];
   const chainBadge = chain
-    ? `<span class="chain-badge" title="Step ${chain.pos} of ${chain.total} in breakdown sequence">⛓ ${chain.pos}/${chain.total}</span>`
+    ? `<span class="chain-badge" title="Sub-task ${chain.pos} of ${chain.total}">⛓ ${chain.pos}/${chain.total}</span>`
     : "";
 
   const ts = new Date(t.created * 1000).toLocaleString("de-DE", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -917,6 +1408,11 @@ function todoHtml(t, projMap, chainMap) {
     statusBadge = `<span class="status-badge failed">✗ Failed</span>`;
   } else if (isContextLimit) {
     statusBadge = `<span class="status-badge context-limit">⚡ Interrupted</span>`;
+  } else if (isSessionLimit) {
+    statusBadge = `<span class="status-badge session-limit">⏸ Paused</span>`;
+  } else if (isPlanned) {
+    const subCount = todos.filter(x => x.parent_id === t.id).length;
+    statusBadge = `<span class="status-badge planned">⋯ Planned${subCount ? ` (${subCount})` : ""}</span>`;
   } else if (isWaiting) {
     statusBadge = `<span class="status-badge waiting">? Needs Input</span>`;
   } else if (isCanceled) {
@@ -951,11 +1447,14 @@ function todoHtml(t, projMap, chainMap) {
   else if (isBlocked) cls = "blocked";
   else if (isFailed) cls = "failed";
   else if (isContextLimit) cls = "context-limit";
+  else if (isSessionLimit) cls = "session-limit";
+  else if (isPlanned) cls = "planned";
   else if (isWaiting) cls = "waiting";
   else if (isCanceled) cls = "canceled";
 
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
   const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
+  const subtasks = subtaskListHtml(subtasksByParent[t.id]);
 
   let questionHtml = "";
   if (isWaiting && t.questions && t.questions.length > 0) {
@@ -981,7 +1480,7 @@ function todoHtml(t, projMap, chainMap) {
   }
 
   const cancelBtn = inProgress ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
-  const resumeBtn = isContextLimit ? `<button class="btn-resume btn-sm" onclick="resumeTodo(${t.id})" title="Resume interrupted task">▶ Continue</button>` : "";
+  const resumeBtn = (isContextLimit || isSessionLimit) ? `<button class="btn-resume btn-sm" onclick="resumeTodo(${t.id})" title="Resume now">▶ Continue</button>` : "";
   const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
   const deleteBtn = (!inProgress && !isWaiting) ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
@@ -997,6 +1496,7 @@ function todoHtml(t, projMap, chainMap) {
         <div class="todo-text">${esc(t.text)}</div>
         ${note}
         ${progress}
+        ${subtasks}
         ${questionHtml}
       </div>
       <div class="todo-actions">${resumeBtn}${cancelBtn}${editBtn}${deleteBtn}</div>
@@ -1125,122 +1625,6 @@ document.getElementById("new-todo").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTodo(); }
 });
 
-// ── Breakdown ────────────────────────────────────────────────────────────────
-
-let _breakdownProjectId = null;
-
-async function _resolveProjectId() {
-  const sel = document.getElementById("project-select");
-  if (!sel.value || sel.value === "") {
-    sel.classList.add("error");
-    sel.focus();
-    setTimeout(() => sel.classList.remove("error"), 1500);
-    return null;
-  }
-  if (sel.value === "__new__") {
-    const name = document.getElementById("new-project-name").value.trim();
-    if (!name) { document.getElementById("new-project-name").focus(); return null; }
-    const data = await fetch("/api/projects/add", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({name}),
-    }).then(r => r.json());
-    document.getElementById("new-project-name").value = "";
-    document.getElementById("new-project-wrap").style.display = "none";
-    projects = await fetch("/api/projects").then(r => r.json());
-    renderDropdown();
-    sel.value = String(data.id);
-    return data.id;
-  }
-  return parseInt(sel.value);
-}
-
-async function breakdownTodo() {
-  const ta = document.getElementById("new-todo");
-  const text = ta.value.trim();
-  if (!text) { ta.focus(); return; }
-  const projectId = await _resolveProjectId();
-  if (projectId === null) return;
-  _breakdownProjectId = projectId;
-
-  const btn = document.getElementById("breakdown-btn");
-  btn.disabled = true;
-  btn.innerHTML = '<svg class="btn-spinner" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="4.5" stroke="#475569" stroke-width="1.5"/><path d="M6 1.5A4.5 4.5 0 0 1 10.5 6" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/></svg>Breaking down…';
-
-  try {
-    const r = await fetch("/api/breakdown", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({text, project_id: projectId}),
-    });
-    const data = await r.json();
-    if (!data.ok || !data.tasks || !data.tasks.length) {
-      alert("Breakdown failed:\n" + (data.error || "unknown error"));
-      return;
-    }
-    showBreakdownModal(data.tasks);
-  } catch (e) {
-    alert("Breakdown error: " + e.message);
-  } finally {
-    btn.textContent = "Break down ↓";
-    btn.disabled = false;
-  }
-}
-
-function showBreakdownModal(tasks) {
-  const list = document.getElementById("breakdown-tasks-list");
-  list.innerHTML = tasks.map((t, i) => `
-    <div class="breakdown-item" id="bdi-${i}">
-      <textarea class="breakdown-task-text">${esc(t)}</textarea>
-      <button class="btn-icon" onclick="document.getElementById('bdi-${i}').remove()" title="Remove">✕</button>
-    </div>
-  `).join("");
-  document.getElementById("breakdown-modal").classList.add("active");
-}
-
-function closeBreakdownModal() {
-  document.getElementById("breakdown-modal").classList.remove("active");
-  _breakdownProjectId = null;
-}
-
-async function approveBreakdown() {
-  const items = document.querySelectorAll(".breakdown-task-text");
-  const texts = Array.from(items).map(ta => ta.value.trim()).filter(Boolean);
-  if (!texts.length) { closeBreakdownModal(); return; }
-
-  const btn = document.getElementById("approve-btn");
-  btn.disabled = true;
-  btn.textContent = `Adding 0 / ${texts.length}…`;
-
-  let prevId = null;
-  for (let i = 0; i < texts.length; i++) {
-    const body = {text: texts[i], project_id: _breakdownProjectId};
-    if (prevId !== null) body.prev_task_id = prevId;
-    const r = await fetch("/api/add", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    prevId = data.id ?? null;
-    btn.textContent = `Adding ${i + 1} / ${texts.length}…`;
-  }
-
-  document.getElementById("new-todo").value = "";
-  closeBreakdownModal();
-  btn.textContent = "Approve All";
-  btn.disabled = false;
-  await loadAll();
-}
-
-document.getElementById("breakdown-btn").addEventListener("click", breakdownTodo);
-document.getElementById("breakdown-cancel-btn").addEventListener("click", closeBreakdownModal);
-document.getElementById("approve-btn").addEventListener("click", approveBreakdown);
-document.getElementById("breakdown-modal").addEventListener("click", function(e) {
-  if (e.target === this) closeBreakdownModal();
-});
-document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && document.getElementById("breakdown-modal").classList.contains("active")) {
-    closeBreakdownModal();
-  }
-});
 
 // ── Drag & drop reordering ────────────────────────────────────────────────────
 
@@ -1345,7 +1729,8 @@ function updateLastActivity() {
 
   const labels = {
     done: "completed", in_progress: "started", failed: "failed",
-    blocked: "blocked", canceled: "canceled", context_limit: "interrupted", pending: "added",
+    blocked: "blocked", canceled: "canceled", context_limit: "interrupted",
+    session_limit: "paused", planned: "planned", pending: "added",
   };
   const label = labels[latest.status] || latest.status;
   el.textContent = `Task #${latest.id} ${label} · ${relTime(latestTime)}`;
@@ -1381,6 +1766,7 @@ async function checkVersion() {
 let lastTodosMtime = null;
 let lastNewsMtime = null;
 let lastPluginStatesMtime = null;
+let lastCryptoMtime = null;
 async function pollTodos() {
   const data = await fetch("/api/state").then(r => r.json()).catch(() => null);
   if (!data) return;
@@ -1388,8 +1774,9 @@ async function pollTodos() {
   const todosChanged = lastTodosMtime !== data.mtime;
   const newsChanged = lastNewsMtime !== data.news_mtime;
   const pluginsChanged = lastPluginStatesMtime !== data.plugin_states_mtime;
+  const cryptoChanged = lastCryptoMtime !== data.crypto_mtime;
 
-  if (!todosChanged && !newsChanged && !pluginsChanged) return;
+  if (!todosChanged && !newsChanged && !pluginsChanged && !cryptoChanged) return;
 
   const fetches = [];
   if (todosChanged) {
@@ -1410,6 +1797,10 @@ async function pollTodos() {
     lastPluginStatesMtime = data.plugin_states_mtime;
     fetches.push(fetch("/api/plugins").then(r => r.json()));
   }
+  if (cryptoChanged) {
+    lastCryptoMtime = data.crypto_mtime;
+    fetches.push(fetch("/api/crypto/data").then(r => r.json()));
+  }
 
   const results = await Promise.all(fetches);
   let idx = 0;
@@ -1427,18 +1818,32 @@ async function pollTodos() {
     if (activeTab === "news") renderNews();
   }
   if (pluginsChanged) {
-    plugins = results[idx];
+    plugins = results[idx++];
     renderSidebar();
+  }
+  if (cryptoChanged) {
+    cryptoData = results[idx];
+    if (activeTab === "crypto") renderCrypto();
+    // Re-enable refresh button once data arrives
+    if (cryptoRefreshing) {
+      cryptoRefreshing = false;
+      const btn = document.getElementById("crypto-refresh-btn");
+      const icon = document.getElementById("crypto-refresh-icon");
+      btn.disabled = false;
+      icon.style.animation = "";
+    }
   }
 }
 
 async function init() {
   await loadAll();
+  await loadCrypto();
   const stateData = await fetch("/api/state").then(r => r.json()).catch(() => null);
   if (stateData) {
     lastTodosMtime = stateData.mtime;
     lastNewsMtime = stateData.news_mtime;
     lastPluginStatesMtime = stateData.plugin_states_mtime;
+    lastCryptoMtime = stateData.crypto_mtime;
   }
   initDragDrop();
   if ("Notification" in window && Notification.permission === "default") {

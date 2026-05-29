@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Lightweight task queue and web UI for AI agent workflows"
 requires-python = ">=3.11"
 dependencies = [
+    "btc-outlook",
     "fastapi>=0.111",
     "uvicorn>=0.29",
 ]
@@ -18,6 +19,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.uv.sources]
+btc-outlook = { path = "../btc-outlook" }
 
 [dependency-groups]
 dev = [

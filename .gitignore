@@ -28,3 +28,7 @@ worker_*.pid
 server.log
 todo_board/worker_*.log
 worker_*.log
+
+# Test coverage artifacts
+.coverage
+coverage.json

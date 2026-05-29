@@ -7,11 +7,14 @@ Usage: python3 todo_board/worker.py <todo_id>
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 import urllib.request
+import zoneinfo
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _DATA_DIR = Path(os.environ.get("TODO_BOARD_DATA_DIR", Path(__file__).resolve().parent.parent))
@@ -32,7 +35,7 @@ CLAUDE_MAX_TURNS = os.environ.get("CLAUDE_MAX_TURNS", "30")
 CLAUDE_MAX_BUDGET_USD = os.environ.get("CLAUDE_MAX_BUDGET_USD", "")
 
 
-def _api(path: str, data: dict) -> None:
+def _api(path: str, data: dict) -> dict:
     body = json.dumps(data).encode()
     req = urllib.request.Request(
         f"{BOARD_URL}{path}",
@@ -41,9 +44,11 @@ def _api(path: str, data: dict) -> None:
         method="POST",
     )
     try:
-        urllib.request.urlopen(req, timeout=5)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
     except Exception as e:
         print(f"API call failed: {e}", file=sys.stderr)
+        return {}
 
 
 def _session_key(project_id) -> str:
@@ -75,18 +80,84 @@ def _build_system_prompt(rules: str, memory: str) -> str:
     return "\n\n".join(parts)
 
 
+_PLANNING_PROMPT = """\
+Analyze this task and decide if it needs to be broken into sequential sub-tasks.
+
+## Task
+{task_text}
+
+## Project
+{project_name}
+
+## Instructions
+Default to NO_BREAKDOWN. Only break down if the task has clearly distinct phases that cannot be done in one pass.
+
+- NO_BREAKDOWN if: one main action, single topic, single file or component, anything doable in one sitting
+- 2–4 SUBTASK lines only if: distinct phases that each stand alone (e.g. read/analyze → implement → test)
+
+Rules:
+- Output ONLY "NO_BREAKDOWN" or "SUBTASK:" lines — nothing else
+- Strongly prefer NO_BREAKDOWN — unnecessary splitting wastes time and loses context
+- Sub-tasks must be substantial phases, not micro-steps ("read the file" is not a sub-task)
+- "Audit current X" + "Implement X" = 2 subtasks, not 5
+- Goal is task execution, not decomposition
+"""
+
+
+def _run_planning_phase(task_text: str, project_name: str, system_prompt: str, model: str, todo_id: int) -> list:
+    """Run a lightweight Claude planning pass. Returns list of sub-task strings or []."""
+    prompt = _PLANNING_PROMPT.format(task_text=task_text, project_name=project_name)
+    cmd = [
+        CLAUDE_BIN, "-p", prompt,
+        "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--model", model,
+        "--max-turns", "3",
+    ]
+    if system_prompt:
+        cmd += ["--append-system-prompt", system_prompt]
+
+    _api("/api/statusline", {"text": f"#{todo_id} → Planning…"})
+    _, output_lines, final_result_text, _, _, _, _ = _invoke_claude(cmd, todo_id)
+
+    combined = (final_result_text or "") + "\n" + "\n".join(output_lines)
+    if "NO_BREAKDOWN" in combined:
+        return []
+
+    subtasks = []
+    for line in combined.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("SUBTASK:"):
+            desc = stripped[8:].strip()
+            if desc:
+                subtasks.append(desc)
+    return subtasks if len(subtasks) >= 2 else []
+
+
 def _build_task_prompt(
     todo_id: int,
     project_name: str,
     task_text: str,
     prev_result: str = "",
     answered_questions: list | None = None,
+    parent_context: str = "",
+    subtask_label: str = "",
+    display_id: str = "",
 ) -> str:
-    parts = [f"""You are processing a single todo item. Implement it fully.
+    effective_id = display_id if display_id else str(todo_id)
+    header = "You are processing a single todo item. Implement it fully."
+    if subtask_label:
+        header = f"You are processing {subtask_label}. Implement it fully."
+    parts = [f"""{header}
 
 ## Task
-Todo #{todo_id} — Project: {project_name}
+Todo #{effective_id} — Project: {project_name}
 {task_text}"""]
+    if parent_context:
+        parts.append(f"""## Parent Task Context
+This sub-task is part of a larger goal:
+{parent_context}""")
     if prev_result:
         parts.append(f"""## Previous Task Output
 The preceding task in this sequence produced the following output — use it as context:
@@ -252,6 +323,38 @@ def _is_context_limit(subtype: str | None, stderr: str) -> bool:
     return any(pat.lower() in stderr_lower for pat in _LIMIT_STDERR_PATTERNS)
 
 
+_SESSION_LIMIT_RE = re.compile(r"you.ve hit your session limit", re.IGNORECASE)
+_SESSION_RESET_RE = re.compile(
+    r"resets?\s+(\d{1,2}:\d{2}\s*(?:am|pm))\s*(?:\(([^)]+)\))?",
+    re.IGNORECASE,
+)
+
+
+def _is_session_limit(stderr: str, output_lines: list) -> bool:
+    combined = stderr + "\n".join(output_lines)
+    return bool(_SESSION_LIMIT_RE.search(combined))
+
+
+def _parse_session_limit_reset(text: str) -> tuple:
+    """Return (unix_timestamp_or_None, display_string_or_None) for the reset time."""
+    m = _SESSION_RESET_RE.search(text)
+    if not m:
+        return None, None
+    time_str = m.group(1).strip().upper().replace(" ", "")
+    tz_str = (m.group(2) or "Europe/Berlin").strip()
+    display = f"{m.group(1).strip()} ({tz_str})"
+    try:
+        tz = zoneinfo.ZoneInfo(tz_str)
+        t = datetime.strptime(time_str, "%I:%M%p")
+        now = datetime.now(tz)
+        candidate = now.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return int(candidate.timestamp()), display
+    except Exception:
+        return None, display
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: worker.py <todo_id>", file=sys.stderr)
@@ -292,27 +395,77 @@ def main() -> None:
         if prev_todo and prev_todo.get("result"):
             prev_result = prev_todo["result"]
 
+    # Resolve parent task context for sub-tasks
+    parent_context = ""
+    subtask_label = ""
+    parent_id = todo.get("parent_id")
+    subtask_idx = todo.get("subtask_idx")
+    if parent_id:
+        parent_todo = next((t for t in todos if t["id"] == parent_id), None)
+        if parent_todo:
+            parent_context = parent_todo.get("text", "")
+            siblings = [t for t in todos if t.get("parent_id") == parent_id]
+            total = len(siblings)
+            subtask_label = f"sub-task #{parent_id}-{subtask_idx} ({subtask_idx}/{total})"
+
     pid_file = LOG_DIR / f"worker_{todo_id}.pid"
     pid_file.write_text(str(os.getpid()))
 
     _api(f"/api/status/{todo_id}", {"status": "in_progress"})
     _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
-    # If this is a restart after the user answered questions, inject those answers.
+    system_prompt = _build_system_prompt(rules, memory)
+
+    # Planning phase: top-level tasks (no parent_id) get auto-broken down if complex.
+    # Sub-tasks and tasks that already have questions answered skip planning.
     existing_questions = todo.get("questions", [])
     answered_questions = (
         existing_questions
         if existing_questions and all(q.get("answer") for q in existing_questions)
         else []
     )
+    is_top_level = not parent_id and not answered_questions
+
+    if is_top_level:
+        # If sub-tasks already exist (e.g. server restarted during planning), jump straight to planned.
+        existing_subtasks = [t for t in todos if t.get("parent_id") == todo_id]
+        if existing_subtasks:
+            _api(f"/api/status/{todo_id}", {"status": "planned"})
+            _api("/api/statusline", {"text": ""})
+            pid_file.unlink(missing_ok=True)
+            return
+
+        planned = _run_planning_phase(task_text, project_name, system_prompt, model, todo_id)
+        if planned:
+            prev_sub_id = None
+            for idx, desc in enumerate(planned, 1):
+                payload: dict = {
+                    "text": desc,
+                    "project_id": todo.get("project_id"),
+                    "parent_id": todo_id,
+                    "subtask_idx": idx,
+                }
+                if prev_sub_id is not None:
+                    payload["prev_task_id"] = prev_sub_id
+                if todo.get("model"):
+                    payload["model"] = todo["model"]
+                resp = _api("/api/add", payload)
+                prev_sub_id = resp.get("id")
+            _api(f"/api/status/{todo_id}", {"status": "planned"})
+            _api("/api/statusline", {"text": ""})
+            pid_file.unlink(missing_ok=True)
+            return
 
     session_key = _session_key(todo.get("project_id"))
     sessions = _load_sessions()
     # Skip session resume when restarting after question-answer cycle (fresh context needed).
     prior_session = None if answered_questions else sessions.get(session_key)
 
-    system_prompt = _build_system_prompt(rules, memory)
-    task_prompt = _build_task_prompt(todo_id, project_name, task_text, prev_result, answered_questions)
+    display_id = f"{parent_id}-{subtask_idx}" if parent_id and subtask_idx else ""
+    task_prompt = _build_task_prompt(
+        todo_id, project_name, task_text, prev_result, answered_questions,
+        parent_context=parent_context, subtask_label=subtask_label, display_id=display_id,
+    )
 
     log_file = LOG_DIR / f"worker_{todo_id}.log"
     start_time = time.time()
@@ -364,8 +517,23 @@ def main() -> None:
             return
 
     hit_limit = _is_context_limit(result_subtype, stderr_out)
+    combined_text = stderr_out + "\n".join(output_lines)
+    is_session_lim = _is_session_limit(stderr_out, output_lines)
+    session_limit_reset_at, session_limit_display = (
+        _parse_session_limit_reset(combined_text) if is_session_lim else (None, None)
+    )
 
-    if hit_limit:
+    if is_session_lim:
+        note = "Session limit reached — will auto-resume"
+        if session_limit_display:
+            note = f"Session limit — auto-resumes at {session_limit_display}"
+        payload: dict = {"status": "session_limit", "duration_secs": duration_secs, "tokens": token_data}
+        if session_limit_reset_at is not None:
+            payload["session_limit_reset_at"] = session_limit_reset_at
+        _api(f"/api/status/{todo_id}", payload)
+        _api(f"/api/note/{todo_id}", {"note": note})
+        # No news feed entry for session limit — task auto-resumes
+    elif hit_limit:
         _api(f"/api/status/{todo_id}", {"status": "context_limit", "duration_secs": duration_secs, "tokens": token_data})
         _api("/api/news", {
             "type": "warning",
@@ -385,6 +553,7 @@ def main() -> None:
         })
     else:
         _api(f"/api/status/{todo_id}", {"status": "done", "duration_secs": duration_secs, "tokens": token_data, "result": output[:3000]})
+        _api(f"/api/news/clear-question-warning/{todo_id}", {})
         trimmed = output.strip()
         # Only post news if the output is substantive (not just a generic completion message)
         if len(trimmed) > 60:

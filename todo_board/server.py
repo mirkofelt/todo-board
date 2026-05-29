@@ -2,20 +2,22 @@ import asyncio
 import os
 import signal
 import subprocess
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
-from .config import DATA_DIR, MAX_RETRIES, MEMORY_BACKUP_FILE, MEMORY_FILE, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
+from .config import CRYPTO_STATE_FILE, DATA_DIR, MAX_RETRIES, MEMORY_BACKUP_FILE, MEMORY_FILE, NEWS_FILE, PLUGIN_STATES_FILE, PROJECTS_DIR, TODOS_FILE
 from .github_poller import poll_github_releases, run_release_poller
 from .plugin_runner import is_running, run_plugin
 from .spawner import project_has_active_worker, spawn_worker
 from .storage import (
     accumulate_stats,
     load_counter,
+    load_crypto_state,
     load_github_links,
     load_news,
     load_plugin_states,
@@ -26,6 +28,7 @@ from .storage import (
     load_statusline,
     load_todos,
     save_counter,
+    save_crypto_state,
     save_github_links,
     save_news,
     save_projects,
@@ -35,6 +38,115 @@ from .storage import (
 )
 
 _TEMPLATE = Path(__file__).parent / "templates" / "index.html"
+
+_crypto_refresh_lock = asyncio.Lock()
+
+
+async def _run_crypto_refresh(symbol: str = "BTC-USD") -> dict:
+    """Fetch all crypto data and persist to crypto_state.json. Thread-safe via lock."""
+    async with _crypto_refresh_lock:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, _fetch_crypto_data, symbol)
+
+
+def _fetch_crypto_data(symbol: str = "BTC-USD") -> dict:
+    """Blocking: runs btc_outlook data pipeline and returns serializable state dict."""
+    try:
+        from btc_outlook.analysis.macro import collect_macro_signals
+        from btc_outlook.analysis.scenarios import build_scenarios
+        from btc_outlook.analysis.waves import get_wave_forecast, label_waves, zigzag
+        from btc_outlook.data.calendar import get_halving_context, upcoming_events
+        from btc_outlook.data.news import fetch_news, get_news_sentiment
+        from btc_outlook.data.prices import fetch_ohlcv
+        from btc_outlook.report.chart import plot_outlook
+
+        df = fetch_ohlcv(symbol, period="2y", interval="1wk")
+        price = float(df["Close"].iloc[-1])
+
+        pivots = zigzag(df["Close"], threshold=0.10)
+        wave_points = label_waves(pivots[:6]) if len(pivots) >= 6 else label_waves(pivots)
+        wave_forecast = get_wave_forecast(wave_points)
+        wave_label = wave_points[-1].wave_label if wave_points else "?"
+
+        halving = get_halving_context()
+        macro = collect_macro_signals()
+
+        news_items = fetch_news()
+        news = get_news_sentiment(news_items)
+        # Enrich top_headlines with URL from raw items
+        raw_by_title = {n.title: n for n in news_items}
+        for h in news.get("top_headlines", []):
+            raw = raw_by_title.get(h["title"])
+            if raw:
+                h["url"] = raw.url
+                h["published"] = raw.published.isoformat()
+
+        scenarios = build_scenarios(price, wave_forecast, halving, macro, news)
+        events = upcoming_events(days=90)
+
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=f"_{symbol.replace('-', '_')}.png", delete=False, dir="/tmp"
+        )
+        chart_path = tmp.name
+        tmp.close()
+        plot_outlook(df, wave_points, scenarios, halving, macro, news, events, symbol, chart_path)
+
+        state = {
+            "symbol": symbol,
+            "last_updated": int(time.time()),
+            "price": round(price, 2),
+            "wave_label": wave_label,
+            "halving": halving,
+            "macro": macro,
+            "news": {
+                **news,
+                "items": [
+                    {
+                        "title": n.title,
+                        "summary": n.summary,
+                        "source": n.source,
+                        "published": n.published.isoformat(),
+                        "url": n.url,
+                        "sentiment_score": n.sentiment_score,
+                        "is_relevant": n.is_relevant,
+                    }
+                    for n in news_items[:30]
+                ],
+            },
+            "scenarios": [
+                {
+                    "name": s.name,
+                    "price_target": s.price_target,
+                    "time_horizon": s.time_horizon,
+                    "probability": s.probability,
+                    "triggers": s.triggers,
+                    "risks": s.risks,
+                    "color": s.color,
+                }
+                for s in scenarios
+            ],
+            "upcoming_events": [
+                {
+                    "date": e.date.isoformat(),
+                    "label": e.label,
+                    "category": e.category,
+                    "impact": e.impact,
+                    "description": e.description,
+                }
+                for e in events[:10]
+            ],
+            "chart_path": chart_path,
+            "error": None,
+        }
+    except Exception as exc:
+        state = {
+            "symbol": symbol,
+            "last_updated": int(time.time()),
+            "error": str(exc),
+        }
+
+    save_crypto_state(state)
+    return state
 
 
 def _recover_orphaned_todos() -> None:
@@ -61,12 +173,58 @@ def _recover_orphaned_todos() -> None:
     if changed:
         save_todos(todos)
 
+    # Remove news entries that reference todo IDs which no longer exist.
+    known_ids = {t["id"] for t in todos}
+    news = load_news()
+    clean_news = [n for n in news if n.get("todo_id") is None or n["todo_id"] in known_ids]
+    if len(clean_news) < len(news):
+        save_news(clean_news)
+
     todos = load_todos()
+
+    # Cancel pending sub-tasks whose parent no longer exists (orphaned by parent deletion).
+    known_ids = {t["id"] for t in todos}
+    orphaned = [
+        t for t in todos
+        if t.get("parent_id") and t["parent_id"] not in known_ids and t.get("status") == "pending"
+    ]
+    if orphaned:
+        orphan_ids = {t["id"] for t in orphaned}
+        for t in todos:
+            if t["id"] in orphan_ids:
+                t["status"] = "canceled"
+                t["status_updated_at"] = int(time.time())
+        save_todos(todos)
+        todos = load_todos()
+
+    # Auto-complete "planned" tasks whose sub-tasks have all terminated (none pending/in_progress).
+    # This handles cases where sub-tasks finished without triggering the real-time auto-complete
+    # (e.g. sub-tasks lacked parent_id, or some sub-tasks failed).
+    plan_changed = False
+    for t in todos:
+        if t.get("status") == "planned":
+            active_subs = [
+                s for s in todos
+                if s.get("parent_id") == t["id"] and s.get("status") in ("pending", "in_progress")
+            ]
+            if not active_subs:
+                t["status"] = "done"
+                t["done"] = True
+                t["status_updated_at"] = int(time.time())
+                plan_changed = True
+    if plan_changed:
+        save_todos(todos)
+        todos = load_todos()
+
+    done_ids = {t["id"] for t in todos if t.get("status") == "done"}
     projects_started: set = set()
     to_spawn: list = []
     for t in reversed(todos):
         pid = t.get("project_id")
         if t.get("status") != "pending" or t.get("locked"):
+            continue
+        prev_id = t.get("prev_task_id")
+        if prev_id is not None and prev_id not in done_ids:
             continue
         if pid in projects_started or project_has_active_worker(pid, todos):
             continue
@@ -146,6 +304,8 @@ async def add_todo(request: Request):
     project_id = body.get("project_id")
     model = (body.get("model") or "").strip() or None
     prev_task_id = body.get("prev_task_id")
+    parent_id = body.get("parent_id")
+    subtask_idx = body.get("subtask_idx")
     active = project_has_active_worker(project_id, todos)
     will_spawn = not active
     entry: dict = {
@@ -162,25 +322,16 @@ async def add_todo(request: Request):
         entry["model"] = model
     if prev_task_id is not None:
         entry["prev_task_id"] = int(prev_task_id)
+    if parent_id is not None:
+        entry["parent_id"] = int(parent_id)
+    if subtask_idx is not None:
+        entry["subtask_idx"] = int(subtask_idx)
     todos.insert(0, entry)
     save_todos(todos)
     if will_spawn:
         spawn_worker(new_id)
     return {"ok": True, "id": new_id}
 
-
-@app.post("/api/breakdown")
-async def breakdown_todo(request: Request):
-    from .breakdown import breakdown_task
-    body = await request.json()
-    text = (body.get("text") or "").strip()
-    project_id = body.get("project_id")
-    if not text:
-        return JSONResponse({"ok": False, "error": "Text required"}, status_code=400)
-    tasks, error = await asyncio.to_thread(breakdown_task, text, project_id)
-    if not tasks:
-        return JSONResponse({"ok": False, "error": error or "Could not break down task"}, status_code=500)
-    return JSONResponse({"ok": True, "tasks": tasks})
 
 
 @app.post("/api/status/{todo_id}")
@@ -190,13 +341,14 @@ async def set_status(todo_id: int, request: Request):
     duration_secs = body.get("duration_secs")
     tokens = body.get("tokens")
     result = body.get("result")
+    session_limit_reset_at = body.get("session_limit_reset_at")
     todos = load_todos()
     for t in todos:
         if t["id"] == todo_id:
             t["status"] = status
             t["status_updated_at"] = int(time.time())
             t["done"] = status == "done"
-            if status in ("done", "failed", "blocked", "pending"):
+            if status in ("done", "failed", "blocked", "pending", "session_limit", "planned"):
                 t["progress"] = None
             if duration_secs is not None:
                 t["duration_secs"] = int(duration_secs)
@@ -204,6 +356,8 @@ async def set_status(todo_id: int, request: Request):
                 t["tokens"] = tokens
             if result is not None and status == "done":
                 t["result"] = str(result)[:3000]
+            if session_limit_reset_at is not None:
+                t["session_limit_reset_at"] = int(session_limit_reset_at)
             break
     save_todos(todos)
     # context_limit: re-queue or fail after MAX_RETRIES
@@ -235,15 +389,19 @@ async def set_status(todo_id: int, request: Request):
                 save_todos(todos)
                 if not other_active:
                     spawn_worker(todo_id)
-    # When a worker finishes, start the next pending todo in the same project
-    elif status in ("done", "failed", "canceled"):
+    # When a worker finishes or a task is planned, start the next pending todo in the same project
+    elif status in ("done", "failed", "canceled", "planned"):
+        done_ids = {t["id"] for t in todos if t.get("status") == "done"}
         finished = next((t for t in todos if t["id"] == todo_id), None)
         if finished and finished.get("project_id"):
             pid = finished["project_id"]
             if not project_has_active_worker(pid, todos):
                 next_todo = next(
                     (t for t in reversed(todos)
-                     if t.get("project_id") == pid and t.get("status") == "pending" and not t.get("locked")),
+                     if t.get("project_id") == pid
+                     and t.get("status") == "pending"
+                     and not t.get("locked")
+                     and (t.get("prev_task_id") is None or t.get("prev_task_id") in done_ids)),
                     None,
                 )
                 if next_todo:
@@ -251,6 +409,36 @@ async def set_status(todo_id: int, request: Request):
                     next_todo["status_updated_at"] = int(time.time())
                     save_todos(todos)
                     spawn_worker(next_todo["id"])
+        # Auto-complete parent when all sub-tasks have terminated (done, failed, or canceled).
+        if status in ("done", "failed", "canceled"):
+            finished2 = next((t for t in todos if t["id"] == todo_id), None)
+            if finished2 and finished2.get("parent_id"):
+                parent_id_val = finished2["parent_id"]
+                siblings = [t for t in todos if t.get("parent_id") == parent_id_val]
+                if siblings and not any(s.get("status") in ("pending", "in_progress") for s in siblings):
+                    parent = next((t for t in todos if t["id"] == parent_id_val), None)
+                    if parent and parent.get("status") == "planned":
+                        parent["status"] = "done"
+                        parent["done"] = True
+                        parent["status_updated_at"] = int(time.time())
+                        save_todos(todos)
+                        # Spawn the next pending task now that the parent has resolved
+                        p_pid = parent.get("project_id")
+                        done_ids2 = {t["id"] for t in todos if t.get("status") == "done"}
+                        if p_pid and not project_has_active_worker(p_pid, todos):
+                            nxt = next(
+                                (t for t in reversed(todos)
+                                 if t.get("project_id") == p_pid
+                                 and t.get("status") == "pending"
+                                 and not t.get("locked")
+                                 and (t.get("prev_task_id") is None or t.get("prev_task_id") in done_ids2)),
+                                None,
+                            )
+                            if nxt:
+                                nxt["status"] = "in_progress"
+                                nxt["status_updated_at"] = int(time.time())
+                                save_todos(todos)
+                                spawn_worker(nxt["id"])
     return {"ok": True}
 
 
@@ -293,13 +481,24 @@ def mark_done(todo_id: int):
     return {"ok": True}
 
 
+def _collect_subtask_ids(todos: list, parent_ids: set) -> set:
+    """Collect IDs of all non-in_progress sub-tasks whose parent is in parent_ids."""
+    return {
+        t["id"] for t in todos
+        if t.get("parent_id") in parent_ids and t.get("status") != "in_progress"
+    }
+
+
 @app.post("/api/delete-done")
 def delete_all_done():
     todos = load_todos()
     to_delete = [t for t in todos if t.get("done") or t.get("status") == "canceled"]
     accumulate_stats(to_delete)
     deleted_ids = {t["id"] for t in to_delete}
-    save_todos([t for t in todos if not t.get("done") and t.get("status") != "canceled"])
+    # Cascade: also remove pending sub-tasks of deleted parents
+    orphan_ids = _collect_subtask_ids(todos, deleted_ids)
+    deleted_ids |= orphan_ids
+    save_todos([t for t in todos if t["id"] not in deleted_ids])
     if deleted_ids:
         save_news([n for n in load_news() if n.get("todo_id") not in deleted_ids])
     return {"ok": True}
@@ -311,10 +510,12 @@ def delete_todo(todo_id: int):
     todo = next((t for t in todos if t["id"] == todo_id), None)
     if todo and todo.get("status") == "in_progress":
         return JSONResponse({"ok": False, "error": "Cannot delete an in-progress todo"}, status_code=409)
-    if todo and (todo.get("done") or todo.get("status") in ("failed", "canceled", "context_limit")):
+    if todo and (todo.get("done") or todo.get("status") in ("failed", "canceled", "context_limit", "session_limit")):
         accumulate_stats([todo])
-    save_todos([t for t in todos if t["id"] != todo_id])
-    save_news([n for n in load_news() if n.get("todo_id") != todo_id])
+    # Cascade: also remove non-in_progress sub-tasks of the deleted task
+    deleted_ids = {todo_id} | _collect_subtask_ids(todos, {todo_id})
+    save_todos([t for t in todos if t["id"] not in deleted_ids])
+    save_news([n for n in load_news() if n.get("todo_id") not in deleted_ids])
     return {"ok": True}
 
 
@@ -376,11 +577,14 @@ def resume_todo(todo_id: int):
     todo = next((t for t in todos if t["id"] == todo_id), None)
     if not todo:
         return JSONResponse({"ok": False, "error": "Todo not found"}, status_code=404)
-    if todo.get("status") != "context_limit":
+    if todo.get("status") not in ("context_limit", "session_limit"):
         return JSONResponse({"ok": False, "error": "Todo is not interrupted"}, status_code=409)
+    was_session_limit = todo.get("status") == "session_limit"
+    todo.pop("session_limit_reset_at", None)
     project_id = todo.get("project_id")
-    if project_has_active_worker(project_id, todos):
-        # Another task is already running in this project — queue behind it
+    # Session-limit tasks always go to pending — spawning immediately would hit
+    # the limit again. The heartbeat picks them up once the limit has reset.
+    if was_session_limit or project_has_active_worker(project_id, todos):
         todo["status"] = "pending"
         todo["status_updated_at"] = int(time.time())
         todo["progress"] = None
@@ -459,6 +663,10 @@ async def answer_question(todo_id: int, request: Request):
     todo["questions"] = questions
     all_answered = idx >= len(questions)
     if all_answered:
+        news = load_news()
+        clean_news = [n for n in news if not (n.get("todo_id") == todo_id and n.get("type") == "warning" and "question" in n.get("message", ""))]
+        if len(clean_news) < len(news):
+            save_news(clean_news)
         if project_has_active_worker(todo.get("project_id"), todos):
             todo["status"] = "pending"
             todo["status_updated_at"] = int(time.time())
@@ -565,11 +773,13 @@ def get_state():
     news_mtime = NEWS_FILE.stat().st_mtime if NEWS_FILE.exists() else 0
     news_unread = sum(1 for n in load_news() if not n.get("read"))
     plugin_states_mtime = PLUGIN_STATES_FILE.stat().st_mtime if PLUGIN_STATES_FILE.exists() else 0
+    crypto_mtime = CRYPTO_STATE_FILE.stat().st_mtime if CRYPTO_STATE_FILE.exists() else 0
     return JSONResponse({
         "mtime": mtime,
         "news_mtime": news_mtime,
         "news_unread": news_unread,
         "plugin_states_mtime": plugin_states_mtime,
+        "crypto_mtime": crypto_mtime,
     })
 
 
@@ -597,12 +807,17 @@ async def create_news(request: Request):
     if not message:
         return JSONResponse({"ok": False, "error": "Message required"}, status_code=400)
     news = load_news()
+    todo_id_val = body.get("todo_id")
+    # For error/warning entries tied to a specific task, replace any existing
+    # entry of the same type so retries don't flood the feed.
+    if todo_id_val is not None and msg_type in ("error", "warning"):
+        news = [n for n in news if not (n.get("todo_id") == todo_id_val and n.get("type") == msg_type)]
     new_id = max((n["id"] for n in news), default=0) + 1
     entry = {
         "id": new_id,
         "type": msg_type,
         "message": message,
-        "todo_id": body.get("todo_id"),
+        "todo_id": todo_id_val,
         "project_id": body.get("project_id"),
         "created": int(time.time()),
         "read": False,
@@ -628,6 +843,15 @@ async def mark_news_read(request: Request):
 @app.post("/api/news/clear")
 def clear_news():
     save_news([])
+    return {"ok": True}
+
+
+@app.post("/api/news/clear-question-warning/{todo_id}")
+def clear_question_warning(todo_id: int):
+    news = load_news()
+    clean_news = [n for n in news if not (n.get("todo_id") == todo_id and n.get("type") == "warning" and "question" in n.get("message", ""))]
+    if len(clean_news) < len(news):
+        save_news(clean_news)
     return {"ok": True}
 
 
@@ -689,3 +913,43 @@ def get_requirements():
 async def set_requirements(request: Request):
     save_rules((await request.body()).decode("utf-8"))
     return {"ok": True}
+
+
+# ── Crypto Forecast ────────────────────────────────────────────────────────────
+
+_crypto_refreshing: bool = False
+
+
+@app.get("/api/crypto/data")
+def get_crypto_data():
+    state = load_crypto_state()
+    return JSONResponse(state)
+
+
+@app.post("/api/crypto/refresh")
+async def trigger_crypto_refresh(request: Request):
+    global _crypto_refreshing
+    if _crypto_refreshing:
+        return JSONResponse({"ok": False, "error": "Already refreshing"}, status_code=409)
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    symbol = (body.get("symbol") or "BTC-USD").strip() if isinstance(body, dict) else "BTC-USD"
+    _crypto_refreshing = True
+
+    async def _run():
+        global _crypto_refreshing
+        try:
+            await _run_crypto_refresh(symbol)
+        finally:
+            _crypto_refreshing = False
+
+    asyncio.create_task(_run())
+    return {"ok": True}
+
+
+@app.get("/api/crypto/chart")
+def get_crypto_chart():
+    state = load_crypto_state()
+    chart_path = state.get("chart_path")
+    if not chart_path or not Path(chart_path).exists():
+        return JSONResponse({"error": "No chart available"}, status_code=404)
+    return FileResponse(chart_path, media_type="image/png")

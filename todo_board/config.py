@@ -19,6 +19,7 @@ GITHUB_LINKS_FILE = DATA_DIR / "github_links.json"
 NEWS_FILE = DATA_DIR / "news.json"
 PLUGINS_FILE = DATA_DIR / "plugins.json"
 PLUGIN_STATES_FILE = DATA_DIR / "plugin_states.json"
+CRYPTO_STATE_FILE = DATA_DIR / "crypto_state.json"
 
 CONTEXT_LIMIT_THRESHOLD = 25 * 60  # seconds
 

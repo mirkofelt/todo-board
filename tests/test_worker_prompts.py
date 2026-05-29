@@ -63,6 +63,17 @@ def test_task_prompt_basic():
     assert "Do the thing" in result
 
 
+def test_task_prompt_subtask_uses_display_id():
+    result = _build_task_prompt(92, "General", "Do subtask", display_id="91-1")
+    assert "Todo #91-1" in result
+    assert "Todo #92" not in result
+
+
+def test_task_prompt_no_display_id_uses_todo_id():
+    result = _build_task_prompt(42, "General", "task", display_id="")
+    assert "Todo #42" in result
+
+
 def test_task_prompt_contains_asking_for_clarification_section():
     result = _build_task_prompt(1, "General", "task")
     assert "WAITING_FOR_ANSWERS" in result

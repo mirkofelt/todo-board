@@ -39,6 +39,25 @@ def main() -> None:
         print("No pending todos.")
         return
 
+    # Re-queue session_limit tasks whose reset time has passed
+    now = int(time.time())
+    session_limit_ready = [
+        t for t in non_done
+        if t.get("status") == "session_limit"
+        and (t.get("session_limit_reset_at") is None or t["session_limit_reset_at"] <= now)
+    ]
+    if session_limit_ready:
+        print(f"{len(session_limit_ready)} session-limit todo(s) ready to resume:")
+        for td in session_limit_ready:
+            td["status"] = "pending"
+            td["status_updated_at"] = now
+            td["progress"] = None
+            td.pop("session_limit_reset_at", None)
+            print(f"  [{td['id']}] → pending: {td['text'][:60]}")
+        save_todos(todos)
+        todos = load_todos()
+        non_done = [t for t in todos if t.get("status") not in ("done",) and not t.get("done")]
+
     context_limit_ids = {t["id"] for t in non_done if t.get("status") == "context_limit"}
     retry_ids: set = set()
     if context_limit_ids:

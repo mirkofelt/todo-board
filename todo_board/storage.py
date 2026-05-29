@@ -2,6 +2,7 @@ import json
 
 from .config import (
     COUNTER_FILE,
+    CRYPTO_STATE_FILE,
     DEFAULT_PROJECTS,
     DEFAULT_RULES,
     GITHUB_LINKS_FILE,
@@ -159,6 +160,16 @@ def load_plugin_states() -> dict:
 
 def save_plugin_states(states: dict) -> None:
     PLUGIN_STATES_FILE.write_text(json.dumps(states, ensure_ascii=False, indent=2))
+
+
+def load_crypto_state() -> dict:
+    if not CRYPTO_STATE_FILE.exists():
+        return {}
+    return json.loads(CRYPTO_STATE_FILE.read_text())
+
+
+def save_crypto_state(state: dict) -> None:
+    CRYPTO_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def accumulate_stats(todos: list) -> None:
