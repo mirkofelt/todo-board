@@ -19,6 +19,11 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.1.0",
+]
+
 [project.optional-dependencies]
 test = [
     "httpx>=0.27",
