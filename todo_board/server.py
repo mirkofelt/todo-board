@@ -332,6 +332,60 @@ async def lock_todo(todo_id: int, request: Request):
     return {"ok": True}
 
 
+@app.post("/api/questions/{todo_id}")
+async def post_questions(todo_id: int, request: Request):
+    body = await request.json()
+    questions = body.get("questions", [])
+    if not questions:
+        return JSONResponse({"ok": False, "error": "No questions provided"}, status_code=400)
+    todos = load_todos()
+    for t in todos:
+        if t["id"] == todo_id:
+            t["status"] = "waiting"
+            t["status_updated_at"] = int(time.time())
+            t["questions"] = questions
+            t["question_idx"] = 0
+            t["progress"] = None
+            break
+    save_todos(todos)
+    return {"ok": True}
+
+
+@app.post("/api/questions/{todo_id}/answer")
+async def answer_question(todo_id: int, request: Request):
+    body = await request.json()
+    answer = (body.get("answer") or "").strip()
+    if not answer:
+        return JSONResponse({"ok": False, "error": "Answer required"}, status_code=400)
+    todos = load_todos()
+    todo = next((t for t in todos if t["id"] == todo_id), None)
+    if not todo:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    if todo.get("status") != "waiting":
+        return JSONResponse({"ok": False, "error": "Task is not waiting"}, status_code=409)
+    questions = todo.get("questions", [])
+    idx = todo.get("question_idx", 0)
+    if idx >= len(questions):
+        return JSONResponse({"ok": False, "error": "No pending question"}, status_code=409)
+    questions[idx]["answer"] = answer
+    idx += 1
+    todo["question_idx"] = idx
+    todo["questions"] = questions
+    all_answered = idx >= len(questions)
+    if all_answered:
+        if project_has_active_worker(todo.get("project_id"), todos):
+            todo["status"] = "pending"
+            todo["status_updated_at"] = int(time.time())
+        else:
+            todo["status"] = "in_progress"
+            todo["status_updated_at"] = int(time.time())
+            save_todos(todos)
+            spawn_worker(todo_id)
+            return {"ok": True, "all_answered": True}
+    save_todos(todos)
+    return {"ok": True, "all_answered": all_answered}
+
+
 @app.post("/api/reorder")
 async def reorder_todos(request: Request):
     body = await request.json()

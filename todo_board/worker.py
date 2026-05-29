@@ -75,7 +75,13 @@ def _build_system_prompt(rules: str, memory: str) -> str:
     return "\n\n".join(parts)
 
 
-def _build_task_prompt(todo_id: int, project_name: str, task_text: str, prev_result: str = "") -> str:
+def _build_task_prompt(
+    todo_id: int,
+    project_name: str,
+    task_text: str,
+    prev_result: str = "",
+    answered_questions: list | None = None,
+) -> str:
     parts = [f"""You are processing a single todo item. Implement it fully.
 
 ## Task
@@ -86,6 +92,25 @@ Todo #{todo_id} — Project: {project_name}
 The preceding task in this sequence produced the following output — use it as context:
 
 {prev_result}""")
+    if answered_questions:
+        qa_lines = "\n".join(
+            f"Q: {q['question']}\nA: {q['answer']}" for q in answered_questions
+        )
+        parts.append(f"## Clarifications\nThe following questions were asked and answered before you started:\n\n{qa_lines}")
+    parts.append("""## Asking for Clarification
+If you need input before proceeding, collect ALL your questions first, then output them in this exact format:
+  QUESTION: <your question>
+  OPTION: <answer option 1>   ← up to 4 options, all optional
+  OPTION: <answer option 2>
+  ...
+  QUESTION: <next question if any>
+  OPTION: ...
+  WAITING_FOR_ANSWERS
+
+Rules:
+- Only ask if truly necessary. When in doubt, make a reasonable assumption and proceed.
+- Do NOT start any work before outputting WAITING_FOR_ANSWERS — output the questions first.
+- After WAITING_FOR_ANSWERS, stop. Do not output anything else.""")
     parts.append("""## Status Updates
 While working, emit STATUS: <one-line description> on its own line whenever you start a new step.
 Examples:
@@ -98,6 +123,30 @@ When you finish successfully, output nothing extra (or a brief summary).
 If the task CANNOT be completed, output exactly: FAILED:<one-line reason>
 """)
     return "\n\n".join(parts)
+
+
+def _parse_questions(output_lines: list) -> list:
+    """Extract QUESTION:/OPTION: blocks from output lines. Returns list of {question, options, answer} dicts."""
+    questions = []
+    current_q: str | None = None
+    current_opts: list = []
+
+    for line in output_lines:
+        stripped = line.strip()
+        if stripped.startswith("QUESTION:"):
+            if current_q is not None:
+                questions.append({"question": current_q, "options": current_opts[:4], "answer": None})
+            current_q = stripped[9:].strip()
+            current_opts = []
+        elif stripped.startswith("OPTION:") and current_q is not None:
+            opt = stripped[7:].strip()
+            if opt and len(current_opts) < 4:
+                current_opts.append(opt)
+
+    if current_q is not None:
+        questions.append({"question": current_q, "options": current_opts[:4], "answer": None})
+
+    return questions
 
 
 def _build_cold_cmd(task_prompt: str, system_prompt: str, model: str) -> list:
@@ -249,12 +298,21 @@ def main() -> None:
     _api(f"/api/status/{todo_id}", {"status": "in_progress"})
     _api("/api/statusline", {"text": f"Todo #{todo_id}: {task_preview}"})
 
+    # If this is a restart after the user answered questions, inject those answers.
+    existing_questions = todo.get("questions", [])
+    answered_questions = (
+        existing_questions
+        if existing_questions and all(q.get("answer") for q in existing_questions)
+        else []
+    )
+
     session_key = _session_key(todo.get("project_id"))
     sessions = _load_sessions()
-    prior_session = sessions.get(session_key)
+    # Skip session resume when restarting after question-answer cycle (fresh context needed).
+    prior_session = None if answered_questions else sessions.get(session_key)
 
     system_prompt = _build_system_prompt(rules, memory)
-    task_prompt = _build_task_prompt(todo_id, project_name, task_text, prev_result)
+    task_prompt = _build_task_prompt(todo_id, project_name, task_text, prev_result, answered_questions)
 
     log_file = LOG_DIR / f"worker_{todo_id}.log"
     start_time = time.time()
@@ -288,6 +346,22 @@ def main() -> None:
     log_file.write_text(
         "\n".join(output_lines) + ("\n\nSTDERR:\n" + stderr_out if stderr_out else "")
     )
+
+    # Check if Claude is waiting for user input before proceeding.
+    wants_answers = any(l.strip() == "WAITING_FOR_ANSWERS" for l in output_lines)
+    if wants_answers:
+        questions = _parse_questions(output_lines)
+        if questions:
+            _api(f"/api/questions/{todo_id}", {"questions": questions})
+            _api("/api/news", {
+                "type": "warning",
+                "message": f"Task #{todo_id} has {len(questions)} question(s) — waiting for your input",
+                "todo_id": todo_id,
+                "project_id": todo.get("project_id"),
+            })
+            _api("/api/statusline", {"text": ""})
+            pid_file.unlink(missing_ok=True)
+            return
 
     hit_limit = _is_context_limit(result_subtype, stderr_out)
 

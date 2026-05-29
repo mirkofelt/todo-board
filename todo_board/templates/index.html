@@ -208,6 +208,42 @@ button:hover { background: #059669; }
 .todo-item.failed { border-color: #ef4444; background: #1a0e0e; }
 .todo-item.context-limit { border-color: #f59e0b; background: #1c1800; }
 .todo-item.canceled { border-color: #ca8a04; background: #1c1800; opacity: .5; }
+.todo-item.waiting { border-color: #7c3aed; background: #130d21; }
+.todo-statusbar.waiting {
+  background: linear-gradient(90deg, #7c3aed 0%, #a78bfa 50%, #7c3aed 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+.status-badge.waiting { background: #1e0a3c; border: 1px solid #7c3aed; color: #a78bfa; }
+
+.question-block {
+  margin-top: 10px; padding: 12px 14px;
+  background: #0f0a1e; border: 1px solid #7c3aed; border-radius: 8px;
+  width: 100%;
+}
+.question-page-info {
+  font-size: 10px; color: #7c3aed; font-family: monospace; font-weight: 600;
+  letter-spacing: .05em; text-transform: uppercase; margin-bottom: 6px;
+}
+.question-text {
+  font-size: 13px; color: #e2e8f0; line-height: 1.5; margin-bottom: 10px;
+  font-weight: 500;
+}
+.question-options {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+.question-option-btn {
+  background: #1e1040; border: 1px solid #5b21b6; color: #c4b5fd;
+  border-radius: 6px; padding: 5px 12px; font-size: 12px;
+  cursor: pointer; transition: background .1s, border-color .1s;
+}
+.question-option-btn:hover { background: #2e1065; border-color: #a78bfa; color: #ede9fe; }
+.question-freetext { display: flex; gap: 6px; align-items: center; }
+.question-freetext input {
+  flex: 1; background: #0f172a; border: 1px solid #4c1d95; border-radius: 6px;
+  color: #e2e8f0; padding: 6px 10px; font-size: 12px;
+}
+.question-freetext input:focus { outline: none; border-color: #7c3aed; }
 
 .todo-body { flex: 1; min-width: 0; }
 .todo-text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
@@ -481,6 +517,7 @@ async function loadAll() {
   renderDropdown();
   renderSidebar();
   renderTodos();
+  checkNewWaitingTasks(todos);
   updateUnreadBadge();
   if (activeTab === "news") renderNews();
 }
@@ -649,6 +686,56 @@ document.getElementById("plugin-result-modal").addEventListener("click", functio
   if (e.target === this) closePluginModal();
 });
 
+// ── Question / Answer ─────────────────────────────────────────────────────────
+
+async function answerQuestion(todoId, answer) {
+  const r = await fetch(`/api/questions/${todoId}/answer`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({answer}),
+  });
+  if (r.ok) {
+    todos = await fetch("/api/todos").then(r => r.json());
+    renderTodos();
+  }
+}
+
+function answerQuestionFromBtn(btn) {
+  const todoId = parseInt(btn.dataset.todoId);
+  const answer = btn.dataset.answer || btn.textContent.trim();
+  if (!isNaN(todoId) && answer) answerQuestion(todoId, answer);
+}
+
+function submitFreetext(todoId) {
+  const input = document.getElementById(`qi-${todoId}`);
+  const answer = (input ? input.value : "").trim();
+  if (!answer) { if (input) input.focus(); return; }
+  answerQuestion(todoId, answer);
+}
+
+// ── Browser Notifications ─────────────────────────────────────────────────────
+
+let _notifiedWaiting = new Set();
+
+function fireWaitingNotification(todo) {
+  if (_notifiedWaiting.has(todo.id)) return;
+  _notifiedWaiting.add(todo.id);
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const q = todo.questions && todo.questions[todo.question_idx || 0];
+  const body = q ? q.question : "This task needs your input to continue.";
+  new Notification(`Task #${todo.id} needs your answer`, {body, tag: `todo-waiting-${todo.id}`});
+}
+
+function checkNewWaitingTasks(newTodos) {
+  for (const t of newTodos) {
+    if (t.status === "waiting") fireWaitingNotification(t);
+  }
+  // Clean up ids that are no longer waiting
+  const waitingIds = new Set(newTodos.filter(t => t.status === "waiting").map(t => t.id));
+  for (const id of _notifiedWaiting) {
+    if (!waitingIds.has(id)) _notifiedWaiting.delete(id);
+  }
+}
+
 function buildChainMap(todos) {
   const byId = Object.fromEntries(todos.map(t => [t.id, t]));
   const nextOf = {};
@@ -759,6 +846,9 @@ function progressCircleHtml(t) {
   if (t.status === 'context_limit') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#f59e0b"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">!</text></svg>`;
   }
+  if (t.status === 'waiting') {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="#7c3aed"/><text x="${cx}" y="${cy+4}" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">?</text></svg>`;
+  }
   if (t.status === 'canceled') {
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="todo-circle" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#475569" stroke-width="2"/></svg>`;
   }
@@ -777,6 +867,7 @@ function todoHtml(t, projMap, chainMap) {
   const isFailed = t.status === "failed";
   const isContextLimit = t.status === "context_limit";
   const isCanceled = t.status === "canceled";
+  const isWaiting = t.status === "waiting";
   const isDone = t.done;
   const isLocked = !!t.locked;
 
@@ -826,6 +917,8 @@ function todoHtml(t, projMap, chainMap) {
     statusBadge = `<span class="status-badge failed">✗ Failed</span>`;
   } else if (isContextLimit) {
     statusBadge = `<span class="status-badge context-limit">⚡ Interrupted</span>`;
+  } else if (isWaiting) {
+    statusBadge = `<span class="status-badge waiting">? Needs Input</span>`;
   } else if (isCanceled) {
     statusBadge = `<span class="status-badge canceled">⊗ Canceled</span>`;
   }
@@ -858,14 +951,39 @@ function todoHtml(t, projMap, chainMap) {
   else if (isBlocked) cls = "blocked";
   else if (isFailed) cls = "failed";
   else if (isContextLimit) cls = "context-limit";
+  else if (isWaiting) cls = "waiting";
   else if (isCanceled) cls = "canceled";
 
   const note = t.note ? `<div class="todo-note">${esc(t.note)}</div>` : "";
   const progress = inProgress && t.progress ? `<div class="todo-progress">↳ ${esc(t.progress)}</div>` : "";
+
+  let questionHtml = "";
+  if (isWaiting && t.questions && t.questions.length > 0) {
+    const idx = t.question_idx || 0;
+    const q = t.questions[idx];
+    if (q && !q.answer) {
+      const total = t.questions.length;
+      const pageInfo = total > 1 ? `<div class="question-page-info">Question ${idx + 1} / ${total}</div>` : "";
+      const opts = (q.options || []).map(opt =>
+        `<button class="question-option-btn" data-todo-id="${t.id}" data-answer="${esc(opt)}" onclick="answerQuestionFromBtn(this)">${esc(opt)}</button>`
+      ).join("");
+      const optionsHtml = opts ? `<div class="question-options">${opts}</div>` : "";
+      questionHtml = `<div class="question-block">
+        ${pageInfo}
+        <div class="question-text">${esc(q.question)}</div>
+        ${optionsHtml}
+        <div class="question-freetext">
+          <input type="text" class="question-input" id="qi-${t.id}" placeholder="Or type your answer…" onkeydown="if(event.key==='Enter'){event.preventDefault();submitFreetext(${t.id});}">
+          <button class="btn-sm" onclick="submitFreetext(${t.id})">Submit</button>
+        </div>
+      </div>`;
+    }
+  }
+
   const cancelBtn = inProgress ? `<button class="btn-cancel btn-sm" onclick="cancelTodo(${t.id})" title="Cancel and roll back">⊗ Cancel</button>` : "";
   const resumeBtn = isContextLimit ? `<button class="btn-resume btn-sm" onclick="resumeTodo(${t.id})" title="Resume interrupted task">▶ Continue</button>` : "";
   const editBtn = (t.status === "pending") ? `<button class="btn-edit" onclick="startEdit(${t.id})" title="Edit task">✎</button>` : "";
-  const deleteBtn = !inProgress ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
+  const deleteBtn = (!inProgress && !isWaiting) ? `<button class="btn-icon" onclick="del(${t.id})" title="Remove">×</button>` : "";
 
   const isPending = t.status === "pending";
   const draggableAttr = isPending ? `draggable="true" data-todo-id="${t.id}"` : `data-todo-id="${t.id}"`;
@@ -879,6 +997,7 @@ function todoHtml(t, projMap, chainMap) {
         <div class="todo-text">${esc(t.text)}</div>
         ${note}
         ${progress}
+        ${questionHtml}
       </div>
       <div class="todo-actions">${resumeBtn}${cancelBtn}${editBtn}${deleteBtn}</div>
     </div>
@@ -1300,6 +1419,7 @@ async function pollTodos() {
     renderDropdown();
     renderSidebar();
     renderTodos();
+    checkNewWaitingTasks(todos);
   }
   if (newsChanged) {
     newsItems = results[idx++];
@@ -1321,6 +1441,9 @@ async function init() {
     lastPluginStatesMtime = stateData.plugin_states_mtime;
   }
   initDragDrop();
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
 }
 
 init();
